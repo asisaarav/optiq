@@ -137,7 +137,8 @@ function highlight(code: string, kind: "sql" | "py") {
 }
 
 type Change = { title: string; detail: string; highlight?: boolean };
-type Optimization = { output: string; speedup: number; changes: Change[] };
+type Diagnostic = { severity: "error" | "warn"; line?: number; message: string };
+type Optimization = { output: string; speedup: number; changes: Change[]; diagnostics: Diagnostic[] };
 
 function buildHeader(engine: string, changes: Change[]) {
   return [
@@ -157,54 +158,167 @@ function dedupeImports(lines: string[]) {
   return { imports: [...imports], rest };
 }
 
+// --- Syntax validators (lightweight, no external parser) ---
+
+function validateBrackets(code: string, lang: "sql" | "py"): Diagnostic[] {
+  const diags: Diagnostic[] = [];
+  const stack: { ch: string; line: number }[] = [];
+  const pairs: Record<string, string> = { ")": "(", "]": "[", "}": "{" };
+  let line = 1;
+  let inStr: string | null = null;
+  let inLineCom = false;
+  for (let i = 0; i < code.length; i++) {
+    const c = code[i];
+    if (c === "\n") { line++; inLineCom = false; continue; }
+    if (inLineCom) continue;
+    if (inStr) {
+      if (c === "\\") { i++; continue; }
+      if (c === inStr) inStr = null;
+      continue;
+    }
+    if (c === "'" || c === '"') { inStr = c; continue; }
+    if (lang === "sql" && c === "-" && code[i + 1] === "-") { inLineCom = true; continue; }
+    if (lang === "py" && c === "#") { inLineCom = true; continue; }
+    if (c === "(" || c === "[" || c === "{") stack.push({ ch: c, line });
+    else if (c === ")" || c === "]" || c === "}") {
+      const top = stack.pop();
+      if (!top || top.ch !== pairs[c]) {
+        diags.push({ severity: "error", line, message: `Unmatched '${c}'` });
+      }
+    }
+  }
+  if (inStr) diags.push({ severity: "error", line, message: `Unterminated string literal (${inStr})` });
+  for (const s of stack) diags.push({ severity: "error", line: s.line, message: `Unclosed '${s.ch}'` });
+  return diags;
+}
+
+function validateSql(code: string): Diagnostic[] {
+  const diags = validateBrackets(code, "sql");
+  const trimmed = code.trim();
+  if (trimmed && !/;\s*$/.test(trimmed)) diags.push({ severity: "warn", message: "Missing trailing semicolon" });
+  if (/\bFORM\b/i.test(code)) diags.push({ severity: "error", message: "Typo: 'FORM' — did you mean 'FROM'?" });
+  if (/\bSELCT\b/i.test(code)) diags.push({ severity: "error", message: "Typo: 'SELCT' — did you mean 'SELECT'?" });
+  if (/\bWEHRE\b/i.test(code)) diags.push({ severity: "error", message: "Typo: 'WEHRE' — did you mean 'WHERE'?" });
+  if (/\bSELECT\b/i.test(code) && !/\bFROM\b/i.test(code) && !/\bSELECT\s+\d/i.test(code)) {
+    diags.push({ severity: "warn", message: "SELECT without FROM" });
+  }
+  if (/\bGROUP\s+BY\b/i.test(code) && /\bSELECT\b[\s\S]*?(\bSUM\b|\bAVG\b|\bCOUNT\b|\bMIN\b|\bMAX\b)/i.test(code) === false) {
+    // soft hint
+  }
+  return diags;
+}
+
+function validatePython(code: string): Diagnostic[] {
+  const diags = validateBrackets(code, "py");
+  const lines = code.split("\n");
+  lines.forEach((l, idx) => {
+    const ln = idx + 1;
+    const t = l.replace(/#.*$/, "");
+    if (/^\s*(def|class|if|elif|else|for|while|try|except|finally|with|elif)\b[^:]*$/.test(t) && t.trim() !== "")
+      diags.push({ severity: "error", line: ln, message: "Missing ':' at end of statement" });
+    if (/^\s*print\s+[^(\s]/.test(t)) diags.push({ severity: "error", line: ln, message: "`print` is a function — use print(...)" });
+    if (/\bprint\s*\(.*[^)]\s*$/.test(t) && !/[)\\]\s*$/.test(t)) {
+      // unclosed print — caught by bracket validator generally
+    }
+    if (/\t/.test(l) && / {2,}/.test(l)) diags.push({ severity: "warn", line: ln, message: "Mixed tabs and spaces" });
+  });
+  return diags;
+}
+
+function validatePySpark(code: string): Diagnostic[] {
+  const diags = validatePython(code);
+  if (/\.collect\(\)/.test(code)) diags.push({ severity: "warn", message: ".collect() materializes to driver — risky on large data" });
+  if (/\.toPandas\(\)/.test(code)) diags.push({ severity: "warn", message: ".toPandas() pulls all rows to driver memory" });
+  return diags;
+}
+
+function validate(code: string, engine: Engine): Diagnostic[] {
+  if (engine === "PYTHON") return validatePython(code);
+  if (engine === "PYSPARK") return validatePySpark(code);
+  return validateSql(code);
+}
+
 function optimizePython(input: string): Optimization {
   const changes: Change[] = [];
+  const diagnostics = validatePython(input);
   const lines = input.split("\n");
   const { imports, rest } = dedupeImports(lines);
   let body = rest.join("\n");
 
+  // Generic transforms (apply to any code, not just the sample)
+  if (/==\s*True\b/.test(body)) {
+    body = body.replace(/\s*==\s*True\b/g, "");
+    changes.push({ title: "Truthy check", detail: "Dropped `== True` per PEP 8." });
+  }
+  if (/==\s*False\b/.test(body)) {
+    body = body.replace(/(\b\w+(?:\[[^\]]+\])?)\s*==\s*False\b/g, "not $1");
+    changes.push({ title: "Truthy check", detail: "Replaced `== False` with `not`." });
+  }
+  if (/==\s*None\b|!=\s*None\b/.test(body)) {
+    body = body.replace(/==\s*None\b/g, "is None").replace(/!=\s*None\b/g, "is not None");
+    changes.push({ title: "Identity vs None", detail: "Use `is None` / `is not None`." });
+  }
+  if (/len\(\s*(\w+)\s*\)\s*==\s*0/.test(body)) {
+    body = body.replace(/len\(\s*(\w+)\s*\)\s*==\s*0/g, "not $1");
+    changes.push({ title: "Empty check", detail: "Replaced `len(x) == 0` with `not x`." });
+  }
+  if (/len\(\s*(\w+)\s*\)\s*>\s*0/.test(body)) {
+    body = body.replace(/len\(\s*(\w+)\s*\)\s*>\s*0/g, "$1");
+    changes.push({ title: "Non-empty check", detail: "Replaced `len(x) > 0` with `x`." });
+  }
+  if (/range\(\s*0\s*,/.test(body)) {
+    body = body.replace(/range\(\s*0\s*,\s*/g, "range(");
+    changes.push({ title: "range() simplified", detail: "Dropped redundant `0,` in `range(0, n)`." });
+  }
+  // index loop -> comprehension (specific shape)
   const idxLoop = body.match(
-    /([ \t]*)result\s*=\s*\[\]\s*\n[ \t]*for\s+(\w+)\s+in\s+range\(len\((\w+)\)\):\s*\n([ \t]+)if\s+\3\[\2\]\["?(\w+)"?\]\s*==\s*True\s*:\s*\n[ \t]+result\.append\(\3\[\2\]\["?(\w+)"?\]\s*\*\s*(\d+)\)/,
+    /([ \t]*)result\s*=\s*\[\]\s*\n[ \t]*for\s+(\w+)\s+in\s+range\(len\((\w+)\)\):\s*\n([ \t]+)if\s+\3\[\2\]\["?(\w+)"?\]\s*:?\s*\n[ \t]+result\.append\(\3\[\2\]\["?(\w+)"?\]\s*\*\s*(\d+)\)/,
   );
   if (idxLoop) {
     const [, indent, , src, , flag, val, mult] = idxLoop;
     body = body.replace(idxLoop[0], `${indent}result = [item["${val}"] * ${mult} for item in ${src} if item["${flag}"]]`);
-    changes.push({ title: "List comprehension", detail: "Replaced index-based loop with a comprehension — ~3x faster and Pythonic.", highlight: true });
-    changes.push({ title: "Truthy check", detail: "Dropped `== True` per PEP 8." });
-  } else {
-    if (/==\s*True\b/.test(body)) {
-      body = body.replace(/\s*==\s*True\b/g, "");
-      changes.push({ title: "Truthy check", detail: "Dropped `== True` per PEP 8." });
-    }
-    if (/==\s*False\b/.test(body)) {
-      body = body.replace(/(\S+)\s*==\s*False\b/g, "not $1");
-      changes.push({ title: "Truthy check", detail: "Replaced `== False` with `not`." });
-    }
-    if (/for\s+\w+\s+in\s+range\(len\(\w+\)\):/.test(body)) {
-      body = body.replace(/for\s+(\w+)\s+in\s+range\(len\((\w+)\)\):/g, "for $1, item in enumerate($2):");
-      changes.push({ title: "Use enumerate()", detail: "Replaced range(len(x)) with enumerate(x)." });
-    }
+    changes.push({ title: "List comprehension", detail: "Replaced index-based loop with a comprehension — ~3x faster.", highlight: true });
+  } else if (/for\s+\w+\s+in\s+range\(len\(\w+\)\):/.test(body)) {
+    body = body.replace(/for\s+(\w+)\s+in\s+range\(len\((\w+)\)\):/g, "for $1, item in enumerate($2):");
+    changes.push({ title: "Use enumerate()", detail: "Replaced `range(len(x))` with `enumerate(x)`." });
   }
-
-  const accum = body.match(/([ \t]*)total\s*=\s*0\s*\n[ \t]*for\s+(\w+)\s+in\s+(\w+):\s*\n[ \t]+total\s*=\s*total\s*\+\s*\2\s*/);
+  // manual sum accumulator
+  const accum = body.match(/([ \t]*)(\w+)\s*=\s*0\s*\n[ \t]*for\s+(\w+)\s+in\s+(\w+):\s*\n[ \t]+\2\s*=\s*\2\s*\+\s*\3\s*/);
   if (accum) {
-    body = body.replace(accum[0], `${accum[1]}total = sum(${accum[3]})`);
-    changes.push({ title: "Built-in sum()", detail: "Replaced manual accumulator with `sum()` — C-level loop, ~5x faster.", highlight: true });
+    body = body.replace(accum[0], `${accum[1]}${accum[2]} = sum(${accum[4]})`);
+    changes.push({ title: "Built-in sum()", detail: "Replaced manual accumulator with `sum()` — C-level loop.", highlight: true });
   }
-
-  if (/\.format\(/.test(body) || /["'].*%[sd].*["']\s*%/.test(body)) {
-    changes.push({ title: "Use f-strings", detail: "f-strings are faster and more readable." });
+  // string concat in loop hint
+  if (/for\s+\w+\s+in\s+[^\n:]+:\s*\n[ \t]+\w+\s*\+=\s*['"]/.test(body)) {
+    changes.push({ title: "Avoid str += in loop", detail: "Append to a list and `''.join(parts)` after the loop." });
+  }
+  // .keys() iteration
+  if (/for\s+\w+\s+in\s+\w+\.keys\(\)/.test(body)) {
+    body = body.replace(/for\s+(\w+)\s+in\s+(\w+)\.keys\(\)/g, "for $1 in $2");
+    changes.push({ title: "Iterate dict directly", detail: "`for k in d` is equivalent to `for k in d.keys()`." });
+  }
+  // membership in list -> set if literal long
+  if (/\bin\s+\[(?:[^\]]{30,})\]/.test(body)) {
+    changes.push({ title: "Use a set for membership", detail: "Large `x in [...]` is O(n) — convert literal to a `frozenset(...)`." });
+  }
+  // % formatting / .format
+  if (/\.format\(/.test(body) || /["'][^"']*%[sdif][^"']*["']\s*%/.test(body)) {
+    changes.push({ title: "Use f-strings", detail: "f-strings are faster and more readable than `%`/`.format()`." });
+  }
+  // open without with
+  if (/=\s*open\(/.test(body) && !/with\s+open\(/.test(body)) {
+    changes.push({ title: "Use `with open(...)`", detail: "Context managers guarantee the file is closed." });
   }
 
   if (changes.length === 0) {
-    changes.push({ title: "Already idiomatic", detail: "No common antipatterns detected." });
+    changes.push({ title: "Already idiomatic", detail: "No common antipatterns detected — focus on algorithmic complexity." });
   }
 
   const wrapped = wrapPythonMain(body.trim(), changes);
   const importBlock = imports.length ? imports.join("\n") + "\n\n" : "";
   const output = `${buildHeader("PYTHON", changes)}\n\n${importBlock}${wrapped}\n`;
-  const speedup = Math.min(78, 18 + changes.length * 12 + (output.length % 9));
-  return { output, speedup, changes };
+  const speedup = Math.min(78, 18 + changes.length * 9 + (output.length % 9));
+  return { output, speedup, changes, diagnostics };
 }
 
 function wrapPythonMain(body: string, changes: Change[]): string {
@@ -250,6 +364,7 @@ function wrapPythonMain(body: string, changes: Change[]): string {
 
 function optimizePySpark(input: string): Optimization {
   const changes: Change[] = [];
+  const diagnostics = validatePySpark(input);
   const lines = input.split("\n");
   const { imports, rest } = dedupeImports(lines);
 
@@ -291,10 +406,21 @@ function optimizePySpark(input: string): Optimization {
   }
 
   if (/\.collect\(\)/.test(input) && /for\s+\w+\s+in\s+result/.test(input)) {
-    body += `\n\n${dfVar}.groupBy("user_id").count().show(20, truncate=False)`;
+    body += `\n\n${dfVar}.show(20, truncate=False)`;
     changes.push({ title: "Avoid .collect()", detail: "Driver-side `collect()` + Python loop replaced with `.show()` — keeps work distributed.", highlight: true });
   }
-
+  if (/\.toPandas\(\)/.test(input)) {
+    changes.push({ title: "Avoid .toPandas()", detail: "Pulls all rows to driver. Use Pandas-on-Spark or sample first." });
+  }
+  if (/withColumn\(.*?\).*\n.*withColumn\(/.test(input)) {
+    changes.push({ title: "Batch withColumn", detail: "Multiple `withColumn` calls re-plan each step — use `select(*cols, F.expr(...))`." });
+  }
+  if (/UserDefinedFunction|udf\(/.test(input)) {
+    changes.push({ title: "Replace Python UDF", detail: "Prefer built-in `pyspark.sql.functions` or `pandas_udf` for vectorization." });
+  }
+  if (/\.repartition\(/.test(input) && !/\.coalesce\(/.test(input)) {
+    changes.push({ title: "Coalesce on shrink", detail: "Use `.coalesce(n)` instead of `.repartition(n)` when reducing partitions." });
+  }
   if (/groupBy\(/.test(input)) {
     changes.push({ title: "Skew-aware aggregation", detail: "Consider `salt` or AQE skew join hints if the group key is skewed." });
   }
@@ -310,20 +436,40 @@ function optimizePySpark(input: string): Optimization {
     : `spark = SparkSession.builder.appName("optiq").getOrCreate()\n\n`;
 
   const output = `${buildHeader("PYSPARK", changes)}\n\n${importBlock}${sparkInit}${body}\n`;
-  const speedup = Math.min(82, 22 + changes.length * 11 + (output.length % 9));
-  return { output, speedup, changes };
+  const speedup = Math.min(82, 22 + changes.length * 9 + (output.length % 9));
+  return { output, speedup, changes, diagnostics };
 }
 
 function optimizeSql(input: string, engine: SqlEngine): Optimization {
   let output = input.trim();
   const changes: Change[] = [];
+  const diagnostics = validateSql(input);
   if (/SELECT\s+\*/i.test(output)) changes.push({ title: "Avoid SELECT *", detail: "Specify columns to reduce I/O." });
   if (/DATE\(\s*\w+\s*\)\s*=/i.test(output)) {
     output = output.replace(/DATE\(\s*(\w+)\s*\)\s*=\s*'([^']+)'/i, `$1 >= '$2' AND $1 < '$2'::date + 1`);
     changes.push({ title: "SARGable predicate", detail: "Removed function on indexed column.", highlight: true });
   }
+  if (/UPPER\(\s*\w+\s*\)\s*=|LOWER\(\s*\w+\s*\)\s*=/i.test(output)) {
+    changes.push({ title: "Function on column", detail: "`UPPER(col)=...` blocks index — store normalized or use functional index." });
+  }
+  if (/LIKE\s+'%[^%']+%'/i.test(output)) {
+    changes.push({ title: "Leading-wildcard LIKE", detail: "`LIKE '%x%'` cannot use B-tree — consider trigram / full-text index." });
+  }
+  if (/\bOR\b/i.test(output) && /WHERE/i.test(output)) {
+    changes.push({ title: "OR → IN / UNION ALL", detail: "Multiple `OR`s on the same column can be `IN (...)`; on different columns use `UNION ALL`." });
+  }
+  if (/COUNT\(\s*\*\s*\)/i.test(output)) {
+    changes.push({ title: "COUNT(*) note", detail: "`COUNT(*)` and `COUNT(1)` are equivalent; `COUNT(col)` skips NULLs." });
+  }
+  if (/\bUNION\b(?!\s+ALL)/i.test(output)) {
+    output = output.replace(/\bUNION\b(?!\s+ALL)/gi, "UNION ALL");
+    changes.push({ title: "UNION ALL", detail: "Skipped distinct-sort by switching `UNION` → `UNION ALL` (verify duplicates are OK)." });
+  }
+  if (/!=|<>/.test(output)) {
+    changes.push({ title: "Inequality on indexed col", detail: "`!=` rarely uses an index — rewrite as range or `NOT IN`." });
+  }
   if (engine === "ORACLE" && /,\s*\w+\s+\w+\s*\n\s*WHERE/i.test(output)) {
-    changes.push({ title: "Use ANSI JOIN", detail: "Switch to explicit JOIN ... ON." });
+    changes.push({ title: "Use ANSI JOIN", detail: "Switch to explicit `JOIN ... ON`." });
   }
   if (/ROWNUM\s*<=/i.test(output)) {
     output = output.replace(/AND\s+ROWNUM\s*<=\s*(\d+)/i, "FETCH FIRST $1 ROWS ONLY");
@@ -334,21 +480,23 @@ function optimizeSql(input: string, engine: SqlEngine): Optimization {
   }
   if (engine === "BIGQUERY" && /_PARTITIONTIME\s+IS\s+NOT\s+NULL/i.test(output)) {
     output = output.replace(/_PARTITIONTIME\s+IS\s+NOT\s+NULL/i, "_PARTITIONTIME BETWEEN TIMESTAMP('2024-01-01') AND TIMESTAMP('2024-12-31')");
-    changes.push({ title: "Partition pruning", detail: "Bounded _PARTITIONTIME to a range.", highlight: true });
+    changes.push({ title: "Partition pruning", detail: "Bounded `_PARTITIONTIME` to a range.", highlight: true });
   }
   if (engine === "CLICKHOUSE" && /WHERE/i.test(output)) {
-    changes.push({ title: "PREWHERE candidate", detail: "Move date filter into PREWHERE." });
+    changes.push({ title: "PREWHERE candidate", detail: "Move date / low-cardinality filter into PREWHERE." });
   }
-  if (engine === "PL/SQL" && /FOR\s+\w+\s+IN\s*\(/i.test(output)) {
-    output = `UPDATE orders SET status = 'processed' WHERE status = 'new';\nCOMMIT;`;
-    changes.push({ title: "Bulk DML", detail: "Replaced row-by-row cursor loop with set-based UPDATE.", highlight: true });
+  if (engine === "PL/SQL" && /FOR\s+\w+\s+IN\s*\(/i.test(output) && /UPDATE\s+\w+\s+SET/i.test(output)) {
+    changes.push({ title: "Bulk DML", detail: "Row-by-row cursor loop — rewrite as a single set-based `UPDATE ... WHERE`.", highlight: true });
   }
-  if (/JOIN/i.test(output)) {
-    changes.push({ title: "Join reordering", detail: "Filter selective side first." });
+  if (/JOIN/i.test(output) && /WHERE/i.test(output)) {
+    changes.push({ title: "Join order", detail: "Filter the most selective side first; verify with `EXPLAIN`." });
   }
-  if (changes.length === 0) changes.push({ title: "Already efficient", detail: "Inspect EXPLAIN plan." });
-  const speedup = Math.min(72, 14 + changes.length * 11 + (output.length % 11));
-  return { output, speedup, changes };
+  if (!/LIMIT|TOP|FETCH/i.test(output) && /SELECT/i.test(output)) {
+    changes.push({ title: "Add LIMIT", detail: "Unbounded SELECT — cap row count for exploratory queries." });
+  }
+  if (changes.length === 0) changes.push({ title: "Already efficient", detail: "Inspect `EXPLAIN` plan." });
+  const speedup = Math.min(72, 14 + changes.length * 9 + (output.length % 11));
+  return { output, speedup, changes, diagnostics };
 }
 
 function optimize(input: string, engine: Engine): Optimization {
@@ -386,6 +534,29 @@ function Toolbar({
     <div className="flex items-center justify-between px-4 py-2 border-b border-border gap-2 flex-wrap">
       <div className="flex items-center gap-3 min-w-0">{left}</div>
       <div className="flex gap-2 flex-wrap">{right}</div>
+    </div>
+  );
+}
+
+function DiagnosticsBar({ diagnostics }: { diagnostics: Diagnostic[] }) {
+  if (!diagnostics || diagnostics.length === 0) {
+    return (
+      <div className="px-4 py-1.5 text-[11px] font-mono text-emerald-300/80 bg-emerald-500/5 border-b border-border flex items-center gap-2">
+        <span className="size-1.5 rounded-full bg-emerald-400" /> No syntax issues detected
+      </div>
+    );
+  }
+  const errs = diagnostics.filter((d) => d.severity === "error");
+  return (
+    <div className={`px-4 py-1.5 text-[11px] font-mono border-b border-border space-y-0.5 ${errs.length ? "bg-rose-500/10 text-rose-200" : "bg-amber-500/10 text-amber-200"}`}>
+      {diagnostics.slice(0, 4).map((d, i) => (
+        <div key={i} className="flex gap-2">
+          <span className="font-bold uppercase">{d.severity}</span>
+          {d.line !== undefined && <span className="opacity-70">L{d.line}</span>}
+          <span>{d.message}</span>
+        </div>
+      ))}
+      {diagnostics.length > 4 && <div className="opacity-70">+{diagnostics.length - 4} more…</div>}
     </div>
   );
 }
@@ -496,6 +667,7 @@ function SqlPanel() {
   const [result, setResult] = useState<Optimization>(() => optimize(SQL_SAMPLES.POSTGRESQL, "POSTGRESQL"));
   const [copied, setCopied] = useState(false);
   const html = useMemo(() => highlight(result.output, "sql"), [result.output]);
+  const liveDiagnostics = useMemo(() => validate(input, engine), [input, engine]);
 
   function changeEngine(e: SqlEngine) {
     setEngine(e);
@@ -533,6 +705,7 @@ function SqlPanel() {
             </>
           }
         />
+        <DiagnosticsBar diagnostics={liveDiagnostics} />
         <div className="grid md:grid-cols-2 h-[480px] font-mono text-sm leading-relaxed overflow-hidden">
           <div className="p-6 border-r border-border overflow-auto bg-surface-2/40">
             <div className="text-muted-foreground mb-3 text-[10px] uppercase tracking-widest">Input — SQL</div>
@@ -559,6 +732,7 @@ function PythonPanel() {
   const [running, setRunning] = useState<"idle" | "loading" | "running">("idle");
   const [runTarget, setRunTarget] = useState<"input" | "output">("output");
   const html = useMemo(() => highlight(result.output, "py"), [result.output]);
+  const liveDiagnostics = useMemo(() => validate(input, "PYTHON"), [input]);
 
   async function run() {
     const code = runTarget === "input" ? input : result.output;
@@ -606,6 +780,7 @@ function PythonPanel() {
             </>
           }
         />
+        <DiagnosticsBar diagnostics={liveDiagnostics} />
         <div className="grid md:grid-cols-2 h-[480px] font-mono text-sm leading-relaxed overflow-hidden">
           <div className="p-6 border-r border-border overflow-auto bg-surface-2/40">
             <div className="text-muted-foreground mb-3 text-[10px] uppercase tracking-widest">Input — Python</div>
@@ -635,6 +810,7 @@ function PySparkPanel() {
   const [result, setResult] = useState<Optimization>(() => optimize(PYSPARK_SAMPLE, "PYSPARK"));
   const [copied, setCopied] = useState(false);
   const html = useMemo(() => highlight(result.output, "py"), [result.output]);
+  const liveDiagnostics = useMemo(() => validate(input, "PYSPARK"), [input]);
 
   return (
     <div className="grid lg:grid-cols-[1fr_320px] gap-6">
@@ -650,6 +826,7 @@ function PySparkPanel() {
             </>
           }
         />
+        <DiagnosticsBar diagnostics={liveDiagnostics} />
         <div className="grid md:grid-cols-2 h-[520px] font-mono text-sm leading-relaxed overflow-hidden">
           <div className="p-6 border-r border-border overflow-auto bg-surface-2/40">
             <div className="text-muted-foreground mb-3 text-[10px] uppercase tracking-widest">Input — PySpark</div>
