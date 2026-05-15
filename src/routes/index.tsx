@@ -33,11 +33,11 @@ function Index() {
       <section id="workspace" className="max-w-7xl mx-auto px-6 pt-20 pb-32 scroll-mt-16">
         <div className="max-w-3xl mb-16" style={{ animation: "fadeIn 0.6s ease-out" }}>
           <h1 className="text-5xl font-bold tracking-tight mb-6 text-balance">
-            Your code, but <span className="text-primary">10x faster</span>. SQL, Python, PySpark.
+            Live optimizer for <span className="text-primary">queries, scripts, and data jobs</span>.
           </h1>
           <p className="text-lg text-muted-foreground text-pretty max-w-[60ch]">
-            Paste a slow query or script. Optiq rewrites it with index hints, join reordering,
-            predicate pushdowns, vectorization, and idiomatic refactors — across 12 engines and runtimes.
+            Paste SQL or Python, run it against an in-browser runtime, catch syntax/runtime errors,
+            generate test data, and ship optimized code through the API.
           </p>
         </div>
         <Workspace />
@@ -55,13 +55,13 @@ function Index() {
       {/* API */}
       <section id="api" className="max-w-7xl mx-auto px-6 py-32 grid md:grid-cols-2 gap-16 items-center">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight mb-4">Drop it into your CI</h2>
+          <h2 className="text-3xl font-bold tracking-tight mb-4">Production API, not a placeholder</h2>
           <p className="text-muted-foreground text-pretty max-w-[48ch] mb-6">
-            Catch performance regressions before they ship. One HTTP call returns the optimized
-            query and an explanation list — pipe it into your code review bot.
+            The endpoint is live for external tools, CI checks, and workflow automations. It validates
+            input, returns diagnostics, rewrites, speed estimates, and CORS-ready JSON responses.
           </p>
-          <a href="#pricing" className="text-primary text-sm font-semibold hover:underline">
-            View API pricing →
+          <a href="#workspace" className="text-primary text-sm font-semibold hover:underline">
+            Test it in the optimizer →
           </a>
         </div>
         <div className="bg-surface rounded-xl ring-1 ring-border p-6">
