@@ -182,10 +182,63 @@ function optimizePython(input: string): Optimization {
     changes.push({ title: "Already idiomatic", detail: "No common antipatterns detected. Profile with cProfile for hotspots." });
   }
 
+  const wrapped = wrapPythonMain(body.trim(), changes);
   const importBlock = imports.length ? imports.join("\n") + "\n\n" : "";
-  const output = `${buildHeader("PYTHON", changes)}\n${importBlock}${body.trim()}\n`;
+  const output = `${buildHeader("PYTHON", changes)}\n${importBlock}${wrapped}\n`;
   const speedup = Math.min(78, 18 + changes.length * 12 + (output.length % 9));
   return { output, speedup, changes };
+}
+
+function wrapPythonMain(body: string, changes: Change[]): string {
+  if (!body) return body;
+  // Skip if already guarded
+  if (/if\s+__name__\s*==\s*["']__main__["']\s*:/.test(body)) return body;
+
+  const rawLines = body.split("\n");
+  const topLevel = rawLines.filter((l) => l.trim() && !l.startsWith(" ") && !l.startsWith("\t"));
+  if (topLevel.length === 0) return body;
+
+  // Split into definitions (def/class/decorators/constants) vs runtime statements.
+  const defs: string[] = [];
+  const runtime: string[] = [];
+  let i = 0;
+  while (i < rawLines.length) {
+    const line = rawLines[i];
+    const trimmed = line.trim();
+    const isTopLevel = line.length > 0 && !line.startsWith(" ") && !line.startsWith("\t");
+
+    if (isTopLevel && (/^(def |class |@|async def )/.test(trimmed))) {
+      // Capture the whole block (this line + indented continuation)
+      const block = [line];
+      i++;
+      while (i < rawLines.length && (rawLines[i].startsWith(" ") || rawLines[i].startsWith("\t") || rawLines[i].trim() === "")) {
+        block.push(rawLines[i]);
+        i++;
+      }
+      // Trim trailing blanks from block
+      while (block.length && block[block.length - 1].trim() === "") block.pop();
+      defs.push(block.join("\n"));
+      continue;
+    }
+
+    // Top-level constant assignment (UPPER_CASE = ...) stays out of main
+    if (isTopLevel && /^[A-Z_][A-Z0-9_]*\s*=/.test(trimmed)) {
+      defs.push(line);
+      i++;
+      continue;
+    }
+
+    if (trimmed === "") { i++; continue; }
+    runtime.push(line);
+    i++;
+  }
+
+  if (runtime.length === 0) return body;
+
+  const indented = runtime.map((l) => "    " + l).join("\n");
+  const defsBlock = defs.length ? defs.join("\n\n") + "\n\n\n" : "";
+  changes.push({ title: "Wrapped in __main__", detail: "Guarded runtime statements with `if __name__ == \"__main__\":` so the file is safely importable and runnable." });
+  return `${defsBlock}def main() -> None:\n${indented}\n\n\nif __name__ == "__main__":\n    main()`;
 }
 
 function optimizePySpark(input: string): Optimization {
