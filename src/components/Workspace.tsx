@@ -666,6 +666,43 @@ function CodeOutput({ html, speedup }: { html: string; speedup?: number }) {
   );
 }
 
+function ExecutionPanel({ result }: { result: ExecutionResult }) {
+  const rows = result.rows ?? [];
+  const columns = rows[0] ? Object.keys(rows[0]) : [];
+  return (
+    <div className="border-t border-border bg-surface-2/30 p-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Live Run</div>
+        <div className={`text-[10px] font-mono ${result.status === "error" ? "text-destructive" : result.status === "success" ? "text-primary" : "text-muted-foreground"}`}>
+          {result.label}{result.elapsedMs !== undefined ? ` · ${result.elapsedMs.toFixed(1)}ms` : ""}
+        </div>
+      </div>
+      {result.status === "error" ? (
+        <pre className="min-h-[72px] max-h-[180px] overflow-auto whitespace-pre-wrap font-mono text-xs text-destructive">{result.error}</pre>
+      ) : columns.length ? (
+        <div className="max-h-[220px] overflow-auto rounded border border-border">
+          <table className="w-full border-collapse text-left font-mono text-xs">
+            <thead className="sticky top-0 bg-secondary text-muted-foreground">
+              <tr>{columns.map((col) => <th key={col} className="border-b border-border px-3 py-2 font-medium">{col}</th>)}</tr>
+            </thead>
+            <tbody>
+              {rows.map((row, idx) => (
+                <tr key={idx} className="border-b border-border/60 last:border-0">
+                  {columns.map((col) => <td key={col} className="px-3 py-2 text-foreground">{String(row[col] ?? "")}</td>)}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <pre className="min-h-[72px] max-h-[180px] overflow-auto whitespace-pre-wrap font-mono text-xs text-muted-foreground">
+          {result.output || "Run the current input or optimized output to see real execution results."}
+        </pre>
+      )}
+    </div>
+  );
+}
+
 function ChangesPanel({ changes }: { changes: Change[] }) {
   return (
     <div className="bg-surface/50 p-4 rounded-xl ring-1 ring-border">
