@@ -182,8 +182,8 @@ function optimizePython(input: string): Optimization {
     changes.push({ title: "Already idiomatic", detail: "No common antipatterns detected. Profile with cProfile for hotspots." });
   }
 
-  const importBlock = imports.length ? imports.join("\n") + "\n\n" : "";
   const wrapped = wrapPythonMain(body.trim(), changes);
+  const importBlock = imports.length ? imports.join("\n") + "\n\n" : "";
   const output = `${buildHeader("PYTHON", changes)}\n${importBlock}${wrapped}\n`;
   const speedup = Math.min(78, 18 + changes.length * 12 + (output.length % 9));
   return { output, speedup, changes };
