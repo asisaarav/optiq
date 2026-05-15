@@ -112,15 +112,16 @@ function Index() {
               <ul className="text-sm space-y-3 text-muted-foreground mb-8">
                 {p.items.map((i) => <li key={i}>{i}</li>)}
               </ul>
-              <button
+              <a
+                href={p.href}
                 className={`w-full py-2 rounded text-sm font-bold transition-colors ${
                   p.popular
                     ? "bg-primary text-primary-foreground hover:opacity-90"
                     : "border border-border hover:bg-secondary"
-                }`}
+                } block text-center`}
               >
                 {p.cta}
-              </button>
+              </a>
             </div>
           ))}
         </div>
@@ -131,11 +132,7 @@ function Index() {
       <footer className="border-t border-border py-12 bg-surface-2 text-xs text-muted-foreground">
         <div className="max-w-7xl mx-auto px-6 flex flex-wrap gap-4 justify-between">
           <div>© 2026 Optiq · code-optimizer.instaluxe.in</div>
-          <div className="flex gap-6">
-            <a href="#" className="hover:text-foreground">Status</a>
-            <a href="#" className="hover:text-foreground">Privacy</a>
-            <a href="#" className="hover:text-foreground">Terms</a>
-          </div>
+          <div className="font-mono">Live optimizer · API · Data Builder</div>
         </div>
       </footer>
     </div>
