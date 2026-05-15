@@ -275,8 +275,6 @@ function optimizePySpark(input: string): Optimization {
   return { output, speedup, changes };
 }
 
-type Optimization_ = unknown; // (kept for legacy; superseded by Optimization above)
-
 function optimize(input: string, engine: Engine): Optimization {
   const trimmed = input.trim();
   const changes: Optimization["changes"] = [];
