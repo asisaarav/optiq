@@ -30,7 +30,7 @@ function Index() {
 
       <main>
       {/* Hero + Workspace */}
-      <section className="max-w-7xl mx-auto px-6 pt-20 pb-32">
+      <section id="workspace" className="max-w-7xl mx-auto px-6 pt-20 pb-32 scroll-mt-16">
         <div className="max-w-3xl mb-16" style={{ animation: "fadeIn 0.6s ease-out" }}>
           <h1 className="text-5xl font-bold tracking-tight mb-6 text-balance">
             Your code, but <span className="text-primary">10x faster</span>. SQL, Python, PySpark.
