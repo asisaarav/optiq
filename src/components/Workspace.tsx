@@ -732,6 +732,7 @@ function PythonPanel() {
   const [running, setRunning] = useState<"idle" | "loading" | "running">("idle");
   const [runTarget, setRunTarget] = useState<"input" | "output">("output");
   const html = useMemo(() => highlight(result.output, "py"), [result.output]);
+  const liveDiagnostics = useMemo(() => validate(input, "PYTHON"), [input]);
 
   async function run() {
     const code = runTarget === "input" ? input : result.output;
