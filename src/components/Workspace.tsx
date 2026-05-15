@@ -139,6 +139,14 @@ function highlight(code: string, kind: "sql" | "py") {
 type Change = { title: string; detail: string; highlight?: boolean };
 type Diagnostic = { severity: "error" | "warn"; line?: number; message: string };
 type Optimization = { output: string; speedup: number; changes: Change[]; diagnostics: Diagnostic[] };
+type ExecutionResult = {
+  status: "idle" | "running" | "success" | "error";
+  label: string;
+  rows?: Record<string, unknown>[];
+  output?: string;
+  error?: string;
+  elapsedMs?: number;
+};
 
 function buildHeader(engine: string, changes: Change[]) {
   return [
@@ -503,6 +511,83 @@ function optimize(input: string, engine: Engine): Optimization {
   if (engine === "PYTHON") return optimizePython(input.trim());
   if (engine === "PYSPARK") return optimizePySpark(input.trim());
   return optimizeSql(input, engine);
+}
+
+const SQL_FIXTURES: Record<string, Record<string, unknown>[]> = {
+  users: [
+    { id: 1, name: "Aarav Sharma", email: "aarav@acme.com", country: "IN", status: "active", tier: "team", created_at: "2024-01-12" },
+    { id: 2, name: "Olivia Smith", email: "olivia@globex.com", country: "US", status: "active", tier: "pro", created_at: "2024-02-18" },
+    { id: 3, name: "Yuki Tanaka", email: "yuki@initech.com", country: "JP", status: "inactive", tier: "free", created_at: "2023-11-03" },
+  ],
+  orders: [
+    { id: 101, user_id: 1, total: 1290.5, amount: 1290.5, status: "pending", region: "APAC", created_at: "2024-01-01", order_date: "2024-01-01" },
+    { id: 102, user_id: 2, total: 8750, amount: 8750, status: "paid", region: "EU", created_at: "2024-03-22", order_date: "2024-03-22" },
+    { id: 103, user_id: 1, total: 230.75, amount: 230.75, status: "pending", region: "US", created_at: "2023-10-09", order_date: "2023-10-09" },
+  ],
+  employees: [
+    { id: 1, name: "Maya Iyer", dept_id: 10 },
+    { id: 2, name: "Diego Garcia", dept_id: 20 },
+  ],
+  departments: [
+    { id: 10, dept_name: "Engineering" },
+    { id: 20, dept_name: "Revenue" },
+  ],
+  events: [
+    { user_id: 1, country: "US", event_date: "2024-05-01", event_name: "signup", ts: "2024-05-01T10:00:00Z" },
+    { user_id: 1, country: "US", event_date: "2024-05-02", event_name: "purchase", ts: "2024-05-02T12:00:00Z" },
+    { user_id: 2, country: "IN", event_date: "2024-05-03", event_name: "signup", ts: "2024-05-03T09:30:00Z" },
+  ],
+  sales: [
+    { id: 1, region: "EU", revenue: 9400, customer_id: 2 },
+    { id: 2, region: "US", revenue: 7200, customer_id: 1 },
+  ],
+  transactions: [
+    { customer_id: 1, amount: 120, date: "2024-01-02" },
+    { customer_id: 2, amount: 450, date: "2024-01-03" },
+  ],
+};
+
+function nextIsoDate(date: string) {
+  const d = new Date(`${date}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return date;
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+function normalizeSqlForRunner(query: string) {
+  let q = query
+    .replace(/;\s*$/g, "")
+    .replace(/`[^`]*\.([^`.]+)`/g, "$1")
+    .replace(/bronze\.transactions/gi, "transactions")
+    .replace(/\bROWNUM\s*<=\s*(\d+)/gi, "1 = 1 LIMIT $1")
+    .replace(/FETCH\s+FIRST\s+(\d+)\s+ROWS\s+ONLY/gi, "LIMIT $1")
+    .replace(/SELECT\s+TOP\s+(\d+)\s+/i, "SELECT ")
+    .replace(/\b(total)\b/gi, "[$1]");
+
+  q = q.replace(/DATE\(\s*(\w+)\s*\)\s*=\s*'([^']+)'/gi, (_m, col, date) => `${col} >= '${date}' AND ${col} < '${nextIsoDate(date)}'`);
+  q = q.replace(/'([^']+)'::date\s*\+\s*1/gi, (_m, date) => `'${nextIsoDate(date)}'`);
+  return q;
+}
+
+async function runSqlLocal(query: string): Promise<ExecutionResult> {
+  const started = performance.now();
+  const alasqlModule = await import("alasql");
+  const alasql = (alasqlModule as any).default ?? alasqlModule;
+  const db = new alasql.Database("optiq_live");
+  Object.entries(SQL_FIXTURES).forEach(([table, rows]) => {
+    db.exec(`CREATE TABLE ${table}`);
+    db.tables[table].data = rows.map((row) => ({ ...row }));
+  });
+  const normalized = normalizeSqlForRunner(query);
+  const result = db.exec(normalized);
+  const rows = Array.isArray(result) ? result.slice(0, 100) : [{ result }];
+  return {
+    status: "success",
+    label: `${rows.length} row${rows.length === 1 ? "" : "s"} returned`,
+    rows,
+    output: JSON.stringify(rows, null, 2),
+    elapsedMs: performance.now() - started,
+  };
 }
 
 // ------------------------- Pyodide runner -------------------------
