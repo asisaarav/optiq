@@ -98,7 +98,7 @@ function Index() {
   -H "Content-Type: application/json" \\
   -d '{
     "engine": "postgresql",
-    "code": "SELECT * FROM orders WHERE DATE(created_at) = '\''2024-01-01'\''"
+    "code": "SELECT * FROM orders WHERE created_at >= 2024-01-01"
   }'`}
             </pre>
           </div>

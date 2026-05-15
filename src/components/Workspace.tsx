@@ -213,7 +213,10 @@ function highlight(code: string, kind: "sql" | "py") {
 
   // restore tokens (handle nesting by repeating)
   for (let i = 0; i < 3; i++) {
-    out = out.replace(/\u0000(\d+)\u0000/g, (_m, n) => tokens[+n]);
+    out = out.replace(
+      new RegExp(`${String.fromCharCode(0)}(\\d+)${String.fromCharCode(0)}`, "g"),
+      (_m, n) => tokens[+n],
+    );
   }
   return out;
 }
@@ -900,7 +903,7 @@ function normalizeSqlForRunner(query: string) {
 async function runSqlLocal(query: string): Promise<ExecutionResult> {
   const started = performance.now();
   const alasqlModule = await import("alasql");
-  const alasql = (alasqlModule as any).default ?? alasqlModule;
+  const alasql = (alasqlModule as { default?: unknown }).default ?? alasqlModule;
   const db = new alasql.Database("optiq_live");
   Object.entries(SQL_FIXTURES).forEach(([table, rows]) => {
     db.exec(`CREATE TABLE ${table}`);
@@ -920,11 +923,21 @@ async function runSqlLocal(query: string): Promise<ExecutionResult> {
 
 // ------------------------- Pyodide runner -------------------------
 
-let pyodidePromise: Promise<any> | null = null;
-function loadPyodide(): Promise<any> {
+type PyodideRuntime = {
+  setStdout: (options: { batched: (text: string) => void }) => void;
+  setStderr: (options: { batched: (text: string) => void }) => void;
+  runPythonAsync: (code: string) => Promise<unknown>;
+};
+
+type PyodideLoader = (options: { indexURL: string }) => Promise<PyodideRuntime>;
+
+type PyodideWindow = Window & { loadPyodide?: PyodideLoader };
+
+let pyodidePromise: Promise<PyodideRuntime> | null = null;
+function loadPyodide(): Promise<PyodideRuntime> {
   if (pyodidePromise) return pyodidePromise;
   pyodidePromise = new Promise((resolve, reject) => {
-    const w = window as any;
+    const w = window as PyodideWindow;
     if (w.loadPyodide) {
       w.loadPyodide({ indexURL: "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/" }).then(
         resolve,
@@ -935,9 +948,9 @@ function loadPyodide(): Promise<any> {
     const s = document.createElement("script");
     s.src = "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js";
     s.onload = () =>
-      (window as any)
-        .loadPyodide({ indexURL: "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/" })
-        .then(resolve, reject);
+      (window as PyodideWindow).loadPyodide!({
+        indexURL: "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/",
+      }).then(resolve, reject);
     s.onerror = () => reject(new Error("Failed to load Pyodide"));
     document.head.appendChild(s);
   });
@@ -1177,8 +1190,12 @@ function SqlPanel() {
     try {
       const ran = await runSqlLocal(code);
       setExecution(ran);
-    } catch (e: any) {
-      setExecution({ status: "error", label: "Execution failed", error: e?.message ?? String(e) });
+    } catch (e: unknown) {
+      setExecution({
+        status: "error",
+        label: "Execution failed",
+        error: e instanceof Error ? e.message : String(e),
+      });
     }
   }
 
@@ -1208,7 +1225,7 @@ function SqlPanel() {
               <select
                 aria-label="SQL run target"
                 value={runTarget}
-                onChange={(e) => setRunTarget(e.target.value as any)}
+                onChange={(e) => setRunTarget(e.target.value as "input" | "output")}
                 className="px-2 py-1 bg-secondary rounded border border-border text-xs font-mono"
               >
                 <option value="input">Run input</option>
@@ -1298,12 +1315,12 @@ function PythonPanel() {
       });
       try {
         await py.runPythonAsync(code);
-      } catch (e: any) {
-        buf += `\n[error] ${e?.message ?? e}`;
+      } catch (e: unknown) {
+        buf += `\n[error] ${e instanceof Error ? e.message : String(e)}`;
         setStdout(buf);
       }
-    } catch (e: any) {
-      setStdout(`[failed to load runtime] ${e?.message ?? e}`);
+    } catch (e: unknown) {
+      setStdout(`[failed to load runtime] ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setRunning("idle");
     }
@@ -1323,7 +1340,7 @@ function PythonPanel() {
               <select
                 aria-label="Run target"
                 value={runTarget}
-                onChange={(e) => setRunTarget(e.target.value as any)}
+                onChange={(e) => setRunTarget(e.target.value as "input" | "output")}
                 className="px-2 py-1 bg-secondary rounded border border-border text-xs font-mono"
               >
                 <option value="output">Run optimized</option>
@@ -1788,7 +1805,7 @@ function DataBuilderPanel() {
             Format
             <select
               value={format}
-              onChange={(e) => setFormat(e.target.value as any)}
+              onChange={(e) => setFormat(e.target.value as "json" | "csv" | "sql")}
               className="w-full mt-1 bg-secondary border border-border rounded px-2 py-1 text-xs font-mono outline-none focus:border-primary"
             >
               <option value="json">JSON</option>
