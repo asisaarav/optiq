@@ -564,6 +564,8 @@ function normalizeSqlForRunner(query: string) {
     .replace(/SELECT\s+TOP\s+(\d+)\s+/i, "SELECT ")
     .replace(/\b(total)\b/gi, "[$1]");
 
+  q = q.replace(/\[(total)\]/gi, "__TOTAL_COL__");
+  q = q.replace(/\b(total)\b/gi, "[$1]").replace(/__TOTAL_COL__/g, "[total]");
   q = q.replace(/DATE\(\s*(\w+)\s*\)\s*=\s*'([^']+)'/gi, (_m, col, date) => `${col} >= '${date}' AND ${col} < '${nextIsoDate(date)}'`);
   q = q.replace(/'([^']+)'::date\s*\+\s*1/gi, (_m, date) => `'${nextIsoDate(date)}'`);
   return q;
