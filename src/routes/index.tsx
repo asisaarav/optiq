@@ -71,12 +71,12 @@ function Index() {
             <span className="size-3 rounded-full bg-secondary" />
             <span className="ml-3 text-xs font-mono text-muted-foreground">bash</span>
           </div>
-          <pre className="font-mono text-sm text-zinc-300 leading-relaxed overflow-x-auto">
-{`curl https://code-optimizer.instaluxe.in/api/v1/optimize \\
-  -H "Authorization: Bearer $OPTIQ_KEY" \\
+          <pre className="font-mono text-sm text-foreground leading-relaxed overflow-x-auto">
+{`curl https://code-optimizer.instaluxe.in/api/public/v1/optimize \\
+  -H "Content-Type: application/json" \\
   -d '{
-    "engine": "postgres",
-    "code": "SELECT * FROM orders WHERE ..."
+    "engine": "postgresql",
+    "code": "SELECT * FROM orders WHERE DATE(created_at) = '\''2024-01-01'\''"
   }'`}
           </pre>
         </div>
@@ -90,10 +90,10 @@ function Index() {
         </div>
         <div className="grid md:grid-cols-4 gap-6">
           {[
-            { name: "Free", price: "$0", items: ["100 optimizations / mo", "All 12 engines", "Manual paste only"], cta: "Get Started" },
-            { name: "Pro", price: "$29", suffix: "/mo", items: ["Unlimited queries", "CLI tool access", "Priority support"], cta: "Try Pro", popular: true },
-            { name: "Team", price: "$99", suffix: "/mo", items: ["Shared workspaces", "SSO / auth", "Audit logs"], cta: "Contact Sales" },
-            { name: "API", price: "$0.01", suffix: "/call", items: ["Pay-as-you-go", "99.9% uptime SLA", "Bulk processing"], cta: "Get API Key" },
+            { name: "Free", price: "$0", items: ["Live SQL/Python run", "All optimizer engines", "Data Builder"], cta: "Open Optimizer", href: "#workspace" },
+            { name: "Pro", price: "$29", suffix: "/mo", items: ["Saved runs", "Bulk optimization", "Priority queues"], cta: "Start Pro", href: "#workspace", popular: true },
+            { name: "Team", price: "$99", suffix: "/mo", items: ["Shared workspaces", "SSO-ready roadmap", "Audit exports"], cta: "Contact Sales", href: "mailto:sales@instaluxe.in" },
+            { name: "API", price: "$0.01", suffix: "/call", items: ["Public HTTP endpoint", "CORS-ready JSON", "CI integration"], cta: "View API", href: "#api" },
           ].map((p) => (
             <div
               key={p.name}
