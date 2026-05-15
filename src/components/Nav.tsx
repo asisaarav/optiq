@@ -7,14 +7,15 @@ export function Nav() {
             <span className="size-3 bg-primary rounded-sm" /> OPTIQ
           </span>
           <div className="hidden md:flex gap-6 text-sm font-medium text-muted-foreground">
+            <a href="#workspace" className="hover:text-foreground transition-colors">Optimizer</a>
             <a href="#engines" className="hover:text-foreground transition-colors">Engines</a>
-            <a href="#pricing" className="hover:text-foreground transition-colors">Pricing</a>
             <a href="#api" className="hover:text-foreground transition-colors">API</a>
+            <a href="#pricing" className="hover:text-foreground transition-colors">Pricing</a>
           </div>
         </div>
-        <button className="bg-foreground text-background px-4 py-1.5 rounded text-sm font-semibold hover:bg-primary transition-colors">
-          Deploy API
-        </button>
+        <a href="#workspace" className="bg-foreground text-background px-4 py-1.5 rounded text-sm font-semibold hover:bg-primary transition-colors">
+          Open Optimizer
+        </a>
       </div>
     </nav>
   );
