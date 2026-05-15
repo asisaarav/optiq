@@ -87,7 +87,7 @@ function optimizePython(code: string) {
   return { output: `# Optimized by Optiq · PYTHON\n${output}`, diagnostics, changes, speedup: Math.min(78, 18 + changes.length * 9) };
 }
 
-export const Route = createFileRoute("/api/v1/optimize")({
+export const Route = createFileRoute("/api/public/v1/optimize")({
   server: {
     handlers: {
       OPTIONS: async () => new Response(null, { status: 204, headers: corsHeaders }),
