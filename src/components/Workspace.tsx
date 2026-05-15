@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ENGINE_TIPS, type Tip, type TipCategory, type TipsKey } from "@/lib/engineTips";
 
 type Mode = "SQL" | "PYTHON" | "PYSPARK" | "DATA";
 
