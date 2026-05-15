@@ -15,21 +15,21 @@ function Index() {
       <section className="max-w-7xl mx-auto px-6 pt-20 pb-32">
         <div className="max-w-3xl mb-16" style={{ animation: "fadeIn 0.6s ease-out" }}>
           <h1 className="text-5xl font-bold tracking-tight mb-6 text-balance">
-            Your SQL, but <span className="text-primary">10x faster</span>. No setup required.
+            Your code, but <span className="text-primary">10x faster</span>. SQL, Python, PySpark.
           </h1>
           <p className="text-lg text-muted-foreground text-pretty max-w-[60ch]">
-            Paste a slow query. We rewrite it using index hints, join reordering, and predicate
-            pushdowns. Instant performance for Postgres, MySQL, Snowflake, and BigQuery.
+            Paste a slow query or script. Optiq rewrites it with index hints, join reordering,
+            predicate pushdowns, vectorization, and idiomatic refactors — across 12 engines and runtimes.
           </p>
         </div>
         <Workspace />
       </section>
 
-      {/* Dialects */}
-      <section id="dialects" className="border-y border-border py-12 bg-surface-2">
-        <div className="max-w-7xl mx-auto px-6 flex flex-wrap justify-between items-center gap-6 opacity-50 grayscale contrast-125">
-          {["POSTGRESQL", "MYSQL", "SNOWFLAKE", "BIGQUERY", "REDSHIFT"].map((d) => (
-            <span key={d} className="font-mono font-bold">{d}</span>
+      {/* Engines */}
+      <section id="engines" className="border-y border-border py-12 bg-surface-2">
+        <div className="max-w-7xl mx-auto px-6 flex flex-wrap justify-center items-center gap-x-8 gap-y-4 opacity-60">
+          {["POSTGRESQL","MYSQL","ORACLE","PL/SQL","SQL SERVER","SNOWFLAKE","BIGQUERY","REDSHIFT","DATABRICKS","CLICKHOUSE","PYTHON","PYSPARK"].map((d) => (
+            <span key={d} className="font-mono font-bold text-sm tracking-tight">{d}</span>
           ))}
         </div>
       </section>
@@ -54,11 +54,11 @@ function Index() {
             <span className="ml-3 text-xs font-mono text-muted-foreground">bash</span>
           </div>
           <pre className="font-mono text-sm text-zinc-300 leading-relaxed overflow-x-auto">
-{`curl https://api.queryflow.dev/v1/optimize \\
-  -H "Authorization: Bearer $QF_KEY" \\
+{`curl https://code-optimizer.instaluxe.in/api/v1/optimize \\
+  -H "Authorization: Bearer $OPTIQ_KEY" \\
   -d '{
-    "dialect": "postgres",
-    "sql": "SELECT * FROM orders WHERE ..."
+    "engine": "postgres",
+    "code": "SELECT * FROM orders WHERE ..."
   }'`}
           </pre>
         </div>
@@ -72,7 +72,7 @@ function Index() {
         </div>
         <div className="grid md:grid-cols-4 gap-6">
           {[
-            { name: "Free", price: "$0", items: ["100 optimizations / mo", "Manual paste only", "Core dialects"], cta: "Get Started" },
+            { name: "Free", price: "$0", items: ["100 optimizations / mo", "All 12 engines", "Manual paste only"], cta: "Get Started" },
             { name: "Pro", price: "$29", suffix: "/mo", items: ["Unlimited queries", "CLI tool access", "Priority support"], cta: "Try Pro", popular: true },
             { name: "Team", price: "$99", suffix: "/mo", items: ["Shared workspaces", "SSO / auth", "Audit logs"], cta: "Contact Sales" },
             { name: "API", price: "$0.01", suffix: "/call", items: ["Pay-as-you-go", "99.9% uptime SLA", "Bulk processing"], cta: "Get API Key" },
@@ -110,7 +110,7 @@ function Index() {
 
       <footer className="border-t border-border py-12 bg-surface-2 text-xs text-muted-foreground">
         <div className="max-w-7xl mx-auto px-6 flex flex-wrap gap-4 justify-between">
-          <div>© 2026 QueryFlow Engine. Built for performance.</div>
+          <div>© 2026 Optiq · code-optimizer.instaluxe.in</div>
           <div className="flex gap-6">
             <a href="#" className="hover:text-foreground">Status</a>
             <a href="#" className="hover:text-foreground">Privacy</a>
