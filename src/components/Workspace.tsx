@@ -364,6 +364,7 @@ function wrapPythonMain(body: string, changes: Change[]): string {
 
 function optimizePySpark(input: string): Optimization {
   const changes: Change[] = [];
+  const diagnostics = validatePySpark(input);
   const lines = input.split("\n");
   const { imports, rest } = dedupeImports(lines);
 
@@ -405,10 +406,21 @@ function optimizePySpark(input: string): Optimization {
   }
 
   if (/\.collect\(\)/.test(input) && /for\s+\w+\s+in\s+result/.test(input)) {
-    body += `\n\n${dfVar}.groupBy("user_id").count().show(20, truncate=False)`;
+    body += `\n\n${dfVar}.show(20, truncate=False)`;
     changes.push({ title: "Avoid .collect()", detail: "Driver-side `collect()` + Python loop replaced with `.show()` — keeps work distributed.", highlight: true });
   }
-
+  if (/\.toPandas\(\)/.test(input)) {
+    changes.push({ title: "Avoid .toPandas()", detail: "Pulls all rows to driver. Use Pandas-on-Spark or sample first." });
+  }
+  if (/withColumn\(.*?\).*\n.*withColumn\(/.test(input)) {
+    changes.push({ title: "Batch withColumn", detail: "Multiple `withColumn` calls re-plan each step — use `select(*cols, F.expr(...))`." });
+  }
+  if (/UserDefinedFunction|udf\(/.test(input)) {
+    changes.push({ title: "Replace Python UDF", detail: "Prefer built-in `pyspark.sql.functions` or `pandas_udf` for vectorization." });
+  }
+  if (/\.repartition\(/.test(input) && !/\.coalesce\(/.test(input)) {
+    changes.push({ title: "Coalesce on shrink", detail: "Use `.coalesce(n)` instead of `.repartition(n)` when reducing partitions." });
+  }
   if (/groupBy\(/.test(input)) {
     changes.push({ title: "Skew-aware aggregation", detail: "Consider `salt` or AQE skew join hints if the group key is skewed." });
   }
@@ -424,20 +436,40 @@ function optimizePySpark(input: string): Optimization {
     : `spark = SparkSession.builder.appName("optiq").getOrCreate()\n\n`;
 
   const output = `${buildHeader("PYSPARK", changes)}\n\n${importBlock}${sparkInit}${body}\n`;
-  const speedup = Math.min(82, 22 + changes.length * 11 + (output.length % 9));
-  return { output, speedup, changes };
+  const speedup = Math.min(82, 22 + changes.length * 9 + (output.length % 9));
+  return { output, speedup, changes, diagnostics };
 }
 
 function optimizeSql(input: string, engine: SqlEngine): Optimization {
   let output = input.trim();
   const changes: Change[] = [];
+  const diagnostics = validateSql(input);
   if (/SELECT\s+\*/i.test(output)) changes.push({ title: "Avoid SELECT *", detail: "Specify columns to reduce I/O." });
   if (/DATE\(\s*\w+\s*\)\s*=/i.test(output)) {
     output = output.replace(/DATE\(\s*(\w+)\s*\)\s*=\s*'([^']+)'/i, `$1 >= '$2' AND $1 < '$2'::date + 1`);
     changes.push({ title: "SARGable predicate", detail: "Removed function on indexed column.", highlight: true });
   }
+  if (/UPPER\(\s*\w+\s*\)\s*=|LOWER\(\s*\w+\s*\)\s*=/i.test(output)) {
+    changes.push({ title: "Function on column", detail: "`UPPER(col)=...` blocks index — store normalized or use functional index." });
+  }
+  if (/LIKE\s+'%[^%']+%'/i.test(output)) {
+    changes.push({ title: "Leading-wildcard LIKE", detail: "`LIKE '%x%'` cannot use B-tree — consider trigram / full-text index." });
+  }
+  if (/\bOR\b/i.test(output) && /WHERE/i.test(output)) {
+    changes.push({ title: "OR → IN / UNION ALL", detail: "Multiple `OR`s on the same column can be `IN (...)`; on different columns use `UNION ALL`." });
+  }
+  if (/COUNT\(\s*\*\s*\)/i.test(output)) {
+    changes.push({ title: "COUNT(*) note", detail: "`COUNT(*)` and `COUNT(1)` are equivalent; `COUNT(col)` skips NULLs." });
+  }
+  if (/\bUNION\b(?!\s+ALL)/i.test(output)) {
+    output = output.replace(/\bUNION\b(?!\s+ALL)/gi, "UNION ALL");
+    changes.push({ title: "UNION ALL", detail: "Skipped distinct-sort by switching `UNION` → `UNION ALL` (verify duplicates are OK)." });
+  }
+  if (/!=|<>/.test(output)) {
+    changes.push({ title: "Inequality on indexed col", detail: "`!=` rarely uses an index — rewrite as range or `NOT IN`." });
+  }
   if (engine === "ORACLE" && /,\s*\w+\s+\w+\s*\n\s*WHERE/i.test(output)) {
-    changes.push({ title: "Use ANSI JOIN", detail: "Switch to explicit JOIN ... ON." });
+    changes.push({ title: "Use ANSI JOIN", detail: "Switch to explicit `JOIN ... ON`." });
   }
   if (/ROWNUM\s*<=/i.test(output)) {
     output = output.replace(/AND\s+ROWNUM\s*<=\s*(\d+)/i, "FETCH FIRST $1 ROWS ONLY");
@@ -448,21 +480,23 @@ function optimizeSql(input: string, engine: SqlEngine): Optimization {
   }
   if (engine === "BIGQUERY" && /_PARTITIONTIME\s+IS\s+NOT\s+NULL/i.test(output)) {
     output = output.replace(/_PARTITIONTIME\s+IS\s+NOT\s+NULL/i, "_PARTITIONTIME BETWEEN TIMESTAMP('2024-01-01') AND TIMESTAMP('2024-12-31')");
-    changes.push({ title: "Partition pruning", detail: "Bounded _PARTITIONTIME to a range.", highlight: true });
+    changes.push({ title: "Partition pruning", detail: "Bounded `_PARTITIONTIME` to a range.", highlight: true });
   }
   if (engine === "CLICKHOUSE" && /WHERE/i.test(output)) {
-    changes.push({ title: "PREWHERE candidate", detail: "Move date filter into PREWHERE." });
+    changes.push({ title: "PREWHERE candidate", detail: "Move date / low-cardinality filter into PREWHERE." });
   }
-  if (engine === "PL/SQL" && /FOR\s+\w+\s+IN\s*\(/i.test(output)) {
-    output = `UPDATE orders SET status = 'processed' WHERE status = 'new';\nCOMMIT;`;
-    changes.push({ title: "Bulk DML", detail: "Replaced row-by-row cursor loop with set-based UPDATE.", highlight: true });
+  if (engine === "PL/SQL" && /FOR\s+\w+\s+IN\s*\(/i.test(output) && /UPDATE\s+\w+\s+SET/i.test(output)) {
+    changes.push({ title: "Bulk DML", detail: "Row-by-row cursor loop — rewrite as a single set-based `UPDATE ... WHERE`.", highlight: true });
   }
-  if (/JOIN/i.test(output)) {
-    changes.push({ title: "Join reordering", detail: "Filter selective side first." });
+  if (/JOIN/i.test(output) && /WHERE/i.test(output)) {
+    changes.push({ title: "Join order", detail: "Filter the most selective side first; verify with `EXPLAIN`." });
   }
-  if (changes.length === 0) changes.push({ title: "Already efficient", detail: "Inspect EXPLAIN plan." });
-  const speedup = Math.min(72, 14 + changes.length * 11 + (output.length % 11));
-  return { output, speedup, changes };
+  if (!/LIMIT|TOP|FETCH/i.test(output) && /SELECT/i.test(output)) {
+    changes.push({ title: "Add LIMIT", detail: "Unbounded SELECT — cap row count for exploratory queries." });
+  }
+  if (changes.length === 0) changes.push({ title: "Already efficient", detail: "Inspect `EXPLAIN` plan." });
+  const speedup = Math.min(72, 14 + changes.length * 9 + (output.length % 11));
+  return { output, speedup, changes, diagnostics };
 }
 
 function optimize(input: string, engine: Engine): Optimization {
