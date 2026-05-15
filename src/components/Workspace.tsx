@@ -667,6 +667,7 @@ function SqlPanel() {
   const [result, setResult] = useState<Optimization>(() => optimize(SQL_SAMPLES.POSTGRESQL, "POSTGRESQL"));
   const [copied, setCopied] = useState(false);
   const html = useMemo(() => highlight(result.output, "sql"), [result.output]);
+  const liveDiagnostics = useMemo(() => validate(input, engine), [input, engine]);
 
   function changeEngine(e: SqlEngine) {
     setEngine(e);
