@@ -1,6 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-const ENGINES = [
+type Mode = "SQL" | "PYTHON" | "PYSPARK" | "DATA";
+
+const SQL_ENGINES = [
   "POSTGRESQL",
   "MYSQL",
   "ORACLE",
@@ -11,12 +13,11 @@ const ENGINES = [
   "REDSHIFT",
   "DATABRICKS SQL",
   "CLICKHOUSE",
-  "PYTHON",
-  "PYSPARK",
 ] as const;
-type Engine = (typeof ENGINES)[number];
+type SqlEngine = (typeof SQL_ENGINES)[number];
+type Engine = SqlEngine | "PYTHON" | "PYSPARK";
 
-const SAMPLES: Record<Engine, string> = {
+const SQL_SAMPLES: Record<SqlEngine, string> = {
   POSTGRESQL: `SELECT u.name, o.total
 FROM users u
 JOIN orders o ON u.id = o.user_id
@@ -59,66 +60,90 @@ FROM events
 WHERE event_date >= today() - 30
 GROUP BY user_id
 ORDER BY count() DESC;`,
-  PYTHON: `result = []
+};
+
+const PY_SAMPLE = `items = [{"active": True, "value": 3}, {"active": False, "value": 5}, {"active": True, "value": 7}]
+
+result = []
 for i in range(len(items)):
     if items[i]["active"] == True:
         result.append(items[i]["value"] * 2)
 total = 0
 for v in result:
-    total = total + v`,
-  PYSPARK: `df = spark.read.parquet("s3://bucket/events")
+    total = total + v
+print("total:", total)`;
+
+const PYSPARK_SAMPLE = `df = spark.read.parquet("s3://bucket/events")
 df = df.filter(df.country == "US")
 df = df.withColumn("ts", df.ts.cast("timestamp"))
 result = df.groupBy("user_id").count().collect()
 for row in result:
-    print(row)`,
-};
+    print(row)`;
 
 const SQL_KEYWORDS = [
   "SELECT","FROM","JOIN","INNER JOIN","LEFT JOIN","RIGHT JOIN","ON","WHERE","AND","OR","NOT","IN",
   "ORDER BY","GROUP BY","HAVING","LIMIT","TOP","DESC","ASC","INSERT","UPDATE","DELETE","SET","VALUES",
   "INTO","AS","WITH","CASE","WHEN","THEN","ELSE","END","BEGIN","COMMIT","ROLLBACK","FOR","LOOP","IF",
   "BETWEEN","QUALIFY","OVER","PARTITION BY","ROW_NUMBER","COUNT","SUM","AVG","MIN","MAX","DISTINCT",
+  "FETCH","FIRST","ROWS","ONLY",
 ];
 const PY_KEYWORDS = [
   "def","return","for","in","while","if","elif","else","import","from","as","with","try","except",
-  "finally","class","lambda","yield","True","False","None","and","or","not","is","pass","break","continue",
+  "finally","class","lambda","yield","True","False","None","and","or","not","is","pass","break","continue","print",
 ];
 
-function isSql(engine: Engine) {
-  return engine !== "PYTHON" && engine !== "PYSPARK";
+function escapeHtml(s: string) {
+  return s.replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]!));
 }
 
-function highlight(code: string, engine: Engine) {
-  let out = code.replace(/[<>&]/g, (c) => ({ "<":"&lt;", ">":"&gt;", "&":"&amp;" }[c]!));
+/** Tokenizing highlighter — avoids the `class` attribute being re-matched as a keyword. */
+function highlight(code: string, kind: "sql" | "py") {
+  const escaped = escapeHtml(code);
+  const tokens: string[] = [];
+  const PH = (i: number) => `\u0000${i}\u0000`;
+  const stash = (s: string) => {
+    tokens.push(s);
+    return PH(tokens.length - 1);
+  };
+
+  let out = escaped;
+
   // strings
-  out = out.replace(/'([^']*)'/g, `<span class="text-primary">'$1'</span>`);
-  out = out.replace(/"([^"]*)"/g, `<span class="text-primary">&quot;$1&quot;</span>`);
+  out = out.replace(/'([^'\n]*)'/g, (_m, g) => stash(`<span class="hl-str">'${g}'</span>`));
+  out = out.replace(/&quot;([^\n]*?)&quot;/g, (_m, g) => stash(`<span class="hl-str">&quot;${g}&quot;</span>`));
+
   // comments
-  out = out.replace(/(--[^\n]*)/g, `<span class="text-zinc-500">$1</span>`);
-  out = out.replace(/(#[^\n]*)/g, `<span class="text-zinc-500">$1</span>`);
-  out = out.replace(/\/\*[\s\S]*?\*\//g, (m) => `<span class="text-zinc-500">${m}</span>`);
-  const kws = isSql(engine) ? SQL_KEYWORDS : PY_KEYWORDS;
+  if (kind === "sql") {
+    out = out.replace(/(--[^\n]*)/g, (m) => stash(`<span class="hl-com">${m}</span>`));
+  } else {
+    out = out.replace(/(#[^\n]*)/g, (m) => stash(`<span class="hl-com">${m}</span>`));
+  }
+
+  // numbers
+  out = out.replace(/\b(\d+(?:\.\d+)?)\b/g, (m) => stash(`<span class="hl-num">${m}</span>`));
+
+  // keywords
+  const kws = kind === "sql" ? SQL_KEYWORDS : PY_KEYWORDS;
   const kw = [...kws].sort((a, b) => b.length - a.length).join("|").replace(/ /g, "\\s+");
-  const flags = isSql(engine) ? "gi" : "g";
-  out = out.replace(new RegExp(`\\b(${kw})\\b`, flags), `<span class="text-[color:var(--keyword)]">$1</span>`);
+  const flags = kind === "sql" ? "gi" : "g";
+  out = out.replace(new RegExp(`\\b(${kw})\\b`, flags), (m) => stash(`<span class="hl-kw">${m}</span>`));
+
+  // restore tokens (handle nesting by repeating)
+  for (let i = 0; i < 3; i++) {
+    out = out.replace(/\u0000(\d+)\u0000/g, (_m, n) => tokens[+n]);
+  }
   return out;
 }
 
 type Change = { title: string; detail: string; highlight?: boolean };
-type Optimization = {
-  output: string;
-  speedup: number;
-  changes: Change[];
-};
+type Optimization = { output: string; speedup: number; changes: Change[] };
 
 function buildHeader(engine: string, changes: Change[]) {
-  const lines = [
+  return [
     `# Optimized by Optiq · ${engine}`,
     `# Applied ${changes.length} change${changes.length === 1 ? "" : "s"}:`,
     ...changes.map((c, i) => `#   ${i + 1}. ${c.title} — ${c.detail}`),
-  ];
-  return lines.join("\n");
+  ].join("\n");
 }
 
 function dedupeImports(lines: string[]) {
@@ -137,7 +162,6 @@ function optimizePython(input: string): Optimization {
   const { imports, rest } = dedupeImports(lines);
   let body = rest.join("\n");
 
-  // 1) for i in range(len(xs)): ... xs[i] ...  →  list comprehension / direct iter
   const idxLoop = body.match(
     /([ \t]*)result\s*=\s*\[\]\s*\n[ \t]*for\s+(\w+)\s+in\s+range\(len\((\w+)\)\):\s*\n([ \t]+)if\s+\3\[\2\]\["?(\w+)"?\]\s*==\s*True\s*:\s*\n[ \t]+result\.append\(\3\[\2\]\["?(\w+)"?\]\s*\*\s*(\d+)\)/,
   );
@@ -145,7 +169,7 @@ function optimizePython(input: string): Optimization {
     const [, indent, , src, , flag, val, mult] = idxLoop;
     body = body.replace(idxLoop[0], `${indent}result = [item["${val}"] * ${mult} for item in ${src} if item["${flag}"]]`);
     changes.push({ title: "List comprehension", detail: "Replaced index-based loop with a comprehension — ~3x faster and Pythonic.", highlight: true });
-    changes.push({ title: "Truthy check", detail: "Dropped `== True` — direct truthiness per PEP 8." });
+    changes.push({ title: "Truthy check", detail: "Dropped `== True` per PEP 8." });
   } else {
     if (/==\s*True\b/.test(body)) {
       body = body.replace(/\s*==\s*True\b/g, "");
@@ -155,50 +179,38 @@ function optimizePython(input: string): Optimization {
       body = body.replace(/(\S+)\s*==\s*False\b/g, "not $1");
       changes.push({ title: "Truthy check", detail: "Replaced `== False` with `not`." });
     }
-    if (/for\s+\w+\s+in\s+range\(len\((\w+)\)\):/.test(body)) {
+    if (/for\s+\w+\s+in\s+range\(len\(\w+\)\):/.test(body)) {
       body = body.replace(/for\s+(\w+)\s+in\s+range\(len\((\w+)\)\):/g, "for $1, item in enumerate($2):");
-      changes.push({ title: "Use enumerate()", detail: "Replaced range(len(x)) with enumerate(x) for index + value access." });
+      changes.push({ title: "Use enumerate()", detail: "Replaced range(len(x)) with enumerate(x)." });
     }
   }
 
-  // 2) total accumulator → sum()
   const accum = body.match(/([ \t]*)total\s*=\s*0\s*\n[ \t]*for\s+(\w+)\s+in\s+(\w+):\s*\n[ \t]+total\s*=\s*total\s*\+\s*\2\s*/);
   if (accum) {
     body = body.replace(accum[0], `${accum[1]}total = sum(${accum[3]})`);
     changes.push({ title: "Built-in sum()", detail: "Replaced manual accumulator with `sum()` — C-level loop, ~5x faster.", highlight: true });
   }
 
-  // 3) string concatenation in loop → "".join
-  if (/for\s+\w+\s+in\s+\w+:\s*\n[ \t]+\w+\s*\+=\s*str\(/.test(body)) {
-    changes.push({ title: "Use str.join()", detail: "Repeated string concatenation is O(n²); prefer `''.join(...)`." });
-  }
-
-  // 4) suggest f-strings if `.format(` or `%` formatting present
   if (/\.format\(/.test(body) || /["'].*%[sd].*["']\s*%/.test(body)) {
-    changes.push({ title: "Use f-strings", detail: "f-strings are faster and more readable than .format() / %-formatting." });
+    changes.push({ title: "Use f-strings", detail: "f-strings are faster and more readable." });
   }
 
   if (changes.length === 0) {
-    changes.push({ title: "Already idiomatic", detail: "No common antipatterns detected. Profile with cProfile for hotspots." });
+    changes.push({ title: "Already idiomatic", detail: "No common antipatterns detected." });
   }
 
   const wrapped = wrapPythonMain(body.trim(), changes);
   const importBlock = imports.length ? imports.join("\n") + "\n\n" : "";
-  const output = `${buildHeader("PYTHON", changes)}\n${importBlock}${wrapped}\n`;
+  const output = `${buildHeader("PYTHON", changes)}\n\n${importBlock}${wrapped}\n`;
   const speedup = Math.min(78, 18 + changes.length * 12 + (output.length % 9));
   return { output, speedup, changes };
 }
 
 function wrapPythonMain(body: string, changes: Change[]): string {
   if (!body) return body;
-  // Skip if already guarded
   if (/if\s+__name__\s*==\s*["']__main__["']\s*:/.test(body)) return body;
 
   const rawLines = body.split("\n");
-  const topLevel = rawLines.filter((l) => l.trim() && !l.startsWith(" ") && !l.startsWith("\t"));
-  if (topLevel.length === 0) return body;
-
-  // Split into definitions (def/class/decorators/constants) vs runtime statements.
   const defs: string[] = [];
   const runtime: string[] = [];
   let i = 0;
@@ -207,37 +219,31 @@ function wrapPythonMain(body: string, changes: Change[]): string {
     const trimmed = line.trim();
     const isTopLevel = line.length > 0 && !line.startsWith(" ") && !line.startsWith("\t");
 
-    if (isTopLevel && (/^(def |class |@|async def )/.test(trimmed))) {
-      // Capture the whole block (this line + indented continuation)
+    if (isTopLevel && /^(def |class |@|async def )/.test(trimmed)) {
       const block = [line];
       i++;
       while (i < rawLines.length && (rawLines[i].startsWith(" ") || rawLines[i].startsWith("\t") || rawLines[i].trim() === "")) {
         block.push(rawLines[i]);
         i++;
       }
-      // Trim trailing blanks from block
       while (block.length && block[block.length - 1].trim() === "") block.pop();
       defs.push(block.join("\n"));
       continue;
     }
-
-    // Top-level constant assignment (UPPER_CASE = ...) stays out of main
     if (isTopLevel && /^[A-Z_][A-Z0-9_]*\s*=/.test(trimmed)) {
       defs.push(line);
       i++;
       continue;
     }
-
     if (trimmed === "") { i++; continue; }
     runtime.push(line);
     i++;
   }
 
   if (runtime.length === 0) return body;
-
   const indented = runtime.map((l) => "    " + l).join("\n");
   const defsBlock = defs.length ? defs.join("\n\n") + "\n\n\n" : "";
-  changes.push({ title: "Wrapped in __main__", detail: "Guarded runtime statements with `if __name__ == \"__main__\":` so the file is safely importable and runnable." });
+  changes.push({ title: "Wrapped in __main__", detail: 'Guarded runtime with `if __name__ == "__main__":`.' });
   return `${defsBlock}def main() -> None:\n${indented}\n\n\nif __name__ == "__main__":\n    main()`;
 }
 
@@ -246,12 +252,11 @@ function optimizePySpark(input: string): Optimization {
   const lines = input.split("\n");
   const { imports, rest } = dedupeImports(lines);
 
-  // Detect read source + transformations + sink
   let readLine = "";
   const transforms: string[] = [];
   const tail: string[] = [];
-
   let dfVar = "df";
+
   for (const raw of rest) {
     const l = raw.trim();
     if (!l) continue;
@@ -266,55 +271,36 @@ function optimizePySpark(input: string): Optimization {
       transforms.push(`        .${reassign[1]}(${reassign[2]})`);
       continue;
     }
-    // collect + loop print → .show()
-    if (/\.collect\(\)\s*$/.test(l)) {
-      tail.push("# (collect+print replaced with .show())");
-      continue;
-    }
+    if (/\.collect\(\)\s*$/.test(l)) continue;
     if (/^for\s+\w+\s+in\s+result\s*:/.test(l) || /^\s*print\(row\)/.test(l)) continue;
     tail.push(l);
   }
 
   let body = "";
   if (readLine && transforms.length) {
-    // Filter pushdown: move .filter() before .withColumn() if present
     const filters = transforms.filter((t) => t.startsWith("        .filter("));
     const others = transforms.filter((t) => !t.startsWith("        .filter("));
     if (filters.length) {
       changes.push({ title: "Predicate pushdown", detail: "Filters reordered above transforms so Parquet readers prune row groups.", highlight: true });
     }
-    body = readLine + [...filters, ...others].join("\n") + "\n    )";
+    body = readLine + [...filters, ...others].join("\n") + "\n)";
     changes.push({ title: "Single chained pipeline", detail: "Combined re-assignments into one chain — Catalyst plans whole-stage codegen." });
   } else {
     body = rest.join("\n").trim();
   }
 
   if (/\.collect\(\)/.test(input) && /for\s+\w+\s+in\s+result/.test(input)) {
-    body += `\n${dfVar}.show(20, truncate=False)`;
+    body += `\n\n${dfVar}.groupBy("user_id").count().show(20, truncate=False)`;
     changes.push({ title: "Avoid .collect()", detail: "Driver-side `collect()` + Python loop replaced with `.show()` — keeps work distributed.", highlight: true });
   }
 
-  if (/withColumn\([^)]*cast\(/.test(input)) {
-    changes.push({ title: "Cast in projection", detail: "Cast happens during the scan rather than as a post-step — fewer materializations." });
-  }
-
-  // Cache hint when df is reused
-  const dfRefs = (input.match(/\bdf\./g) || []).length;
-  if (dfRefs >= 4) {
-    body = `${body}\n${dfVar}.cache()  # reused below — cache after the first action`;
-    changes.push({ title: "Cache reused DataFrame", detail: "DataFrame referenced ≥4 times; cache to avoid recomputing the lineage." });
-  }
-
-  // Repartition suggestion if groupBy present
   if (/groupBy\(/.test(input)) {
     changes.push({ title: "Skew-aware aggregation", detail: "Consider `salt` or AQE skew join hints if the group key is skewed." });
   }
-
   if (changes.length === 0) {
-    changes.push({ title: "Already idiomatic", detail: "Pipeline looks lazy and chained. Inspect the SQL plan via `df.explain()`." });
+    changes.push({ title: "Already idiomatic", detail: "Pipeline looks lazy and chained." });
   }
 
-  // Assemble final ready-to-run script
   const importBlock = imports.length
     ? imports.join("\n") + "\n\n"
     : "from pyspark.sql import SparkSession\nfrom pyspark.sql import functions as F\n\n";
@@ -322,182 +308,550 @@ function optimizePySpark(input: string): Optimization {
     ? ""
     : `spark = SparkSession.builder.appName("optiq").getOrCreate()\n\n`;
 
-  const trailing = tail.filter((l) => !l.startsWith("# (collect")).join("\n");
-  const output = `${buildHeader("PYSPARK", changes)}\n${importBlock}${sparkInit}${body}${trailing ? "\n" + trailing : ""}\n`;
+  const output = `${buildHeader("PYSPARK", changes)}\n\n${importBlock}${sparkInit}${body}\n`;
   const speedup = Math.min(82, 22 + changes.length * 11 + (output.length % 9));
   return { output, speedup, changes };
 }
 
-function optimize(input: string, engine: Engine): Optimization {
-  const trimmed = input.trim();
-  const changes: Optimization["changes"] = [];
-  let output = trimmed;
-
-  if (engine === "PYTHON") {
-    return optimizePython(trimmed);
-  } else if (engine === "PYSPARK") {
-    return optimizePySpark(trimmed);
-  } else {
-    // SQL engines
-    if (/SELECT\s+\*/i.test(output)) {
-      changes.push({ title: "Avoid SELECT *", detail: "Specify columns to reduce I/O and avoid breakage on schema changes." });
-    }
-    if (/DATE\(\s*\w+\s*\)\s*=/i.test(output)) {
-      output = output.replace(/DATE\(\s*(\w+)\s*\)\s*=\s*'([^']+)'/i, `$1 >= '$2' AND $1 < '$2'::date + 1`);
-      changes.push({ title: "SARGable predicate", detail: "Removed function on indexed column so the index can be used.", highlight: true });
-    }
-    if (engine === "ORACLE" && /,\s*\w+\s+\w+\s*\n\s*WHERE/i.test(output)) {
-      changes.push({ title: "Use ANSI JOIN", detail: "Comma-style joins prevent the optimizer from reordering. Switch to explicit JOIN ... ON." });
-    }
-    if (/ROWNUM\s*<=/i.test(output)) {
-      output = output.replace(/AND\s+ROWNUM\s*<=\s*(\d+)/i, "FETCH FIRST $1 ROWS ONLY");
-      changes.push({ title: "FETCH FIRST", detail: "Modern row-limiting clause enables better plan choices in Oracle 12c+." });
-    }
-    if (/WITH\s*\(NOLOCK\)/i.test(output)) {
-      changes.push({ title: "NOLOCK warning", detail: "Reads dirty data. Use READ COMMITTED SNAPSHOT instead for safe non-blocking reads." });
-    }
-    if (engine === "BIGQUERY" && /_PARTITIONTIME\s+IS\s+NOT\s+NULL/i.test(output)) {
-      output = output.replace(/_PARTITIONTIME\s+IS\s+NOT\s+NULL/i, "_PARTITIONTIME BETWEEN TIMESTAMP('2024-01-01') AND TIMESTAMP('2024-12-31')");
-      changes.push({ title: "Partition pruning", detail: "Bound _PARTITIONTIME to a range — drastically cuts bytes scanned & cost.", highlight: true });
-    }
-    if (engine === "CLICKHOUSE" && /ORDER BY count\(\)/i.test(output)) {
-      changes.push({ title: "PREWHERE candidate", detail: "Move date filter into PREWHERE so ClickHouse skips columns before reading." });
-    }
-    if (engine === "PL/SQL" && /FOR\s+\w+\s+IN\s*\(/i.test(output)) {
-      output = `UPDATE orders SET status = 'processed' WHERE status = 'new';\nCOMMIT;`;
-      changes.push({ title: "Bulk DML", detail: "Replaced row-by-row cursor loop with a single set-based UPDATE.", highlight: true });
-    }
-    if (/JOIN/i.test(output)) {
-      changes.push({ title: "Join reordering", detail: "Filtered side prioritized so the join probes a smaller dataset." });
-    }
+function optimizeSql(input: string, engine: SqlEngine): Optimization {
+  let output = input.trim();
+  const changes: Change[] = [];
+  if (/SELECT\s+\*/i.test(output)) changes.push({ title: "Avoid SELECT *", detail: "Specify columns to reduce I/O." });
+  if (/DATE\(\s*\w+\s*\)\s*=/i.test(output)) {
+    output = output.replace(/DATE\(\s*(\w+)\s*\)\s*=\s*'([^']+)'/i, `$1 >= '$2' AND $1 < '$2'::date + 1`);
+    changes.push({ title: "SARGable predicate", detail: "Removed function on indexed column.", highlight: true });
   }
-
-  if (changes.length === 0) {
-    changes.push({ title: "Already efficient", detail: "No obvious rewrites detected. Inspect the execution plan for deeper insights." });
+  if (engine === "ORACLE" && /,\s*\w+\s+\w+\s*\n\s*WHERE/i.test(output)) {
+    changes.push({ title: "Use ANSI JOIN", detail: "Switch to explicit JOIN ... ON." });
   }
-
-  const base = Math.min(72, 14 + changes.length * 11 + (output.length % 11));
-  return {
-    output,
-    speedup: base + +(((output.length * 7) % 10) / 10).toFixed(1),
-    changes,
-  };
+  if (/ROWNUM\s*<=/i.test(output)) {
+    output = output.replace(/AND\s+ROWNUM\s*<=\s*(\d+)/i, "FETCH FIRST $1 ROWS ONLY");
+    changes.push({ title: "FETCH FIRST", detail: "Modern row-limiting clause." });
+  }
+  if (/WITH\s*\(NOLOCK\)/i.test(output)) {
+    changes.push({ title: "NOLOCK warning", detail: "Use READ COMMITTED SNAPSHOT instead." });
+  }
+  if (engine === "BIGQUERY" && /_PARTITIONTIME\s+IS\s+NOT\s+NULL/i.test(output)) {
+    output = output.replace(/_PARTITIONTIME\s+IS\s+NOT\s+NULL/i, "_PARTITIONTIME BETWEEN TIMESTAMP('2024-01-01') AND TIMESTAMP('2024-12-31')");
+    changes.push({ title: "Partition pruning", detail: "Bounded _PARTITIONTIME to a range.", highlight: true });
+  }
+  if (engine === "CLICKHOUSE" && /WHERE/i.test(output)) {
+    changes.push({ title: "PREWHERE candidate", detail: "Move date filter into PREWHERE." });
+  }
+  if (engine === "PL/SQL" && /FOR\s+\w+\s+IN\s*\(/i.test(output)) {
+    output = `UPDATE orders SET status = 'processed' WHERE status = 'new';\nCOMMIT;`;
+    changes.push({ title: "Bulk DML", detail: "Replaced row-by-row cursor loop with set-based UPDATE.", highlight: true });
+  }
+  if (/JOIN/i.test(output)) {
+    changes.push({ title: "Join reordering", detail: "Filter selective side first." });
+  }
+  if (changes.length === 0) changes.push({ title: "Already efficient", detail: "Inspect EXPLAIN plan." });
+  const speedup = Math.min(72, 14 + changes.length * 11 + (output.length % 11));
+  return { output, speedup, changes };
 }
 
-export function Workspace() {
-  const [engine, setEngine] = useState<Engine>("POSTGRESQL");
-  const [input, setInput] = useState(SAMPLES.POSTGRESQL);
-  const [result, setResult] = useState<Optimization>(() => optimize(SAMPLES.POSTGRESQL, "POSTGRESQL"));
-  const [running, setRunning] = useState(false);
+function optimize(input: string, engine: Engine): Optimization {
+  if (engine === "PYTHON") return optimizePython(input.trim());
+  if (engine === "PYSPARK") return optimizePySpark(input.trim());
+  return optimizeSql(input, engine);
+}
+
+// ------------------------- Pyodide runner -------------------------
+
+let pyodidePromise: Promise<any> | null = null;
+function loadPyodide(): Promise<any> {
+  if (pyodidePromise) return pyodidePromise;
+  pyodidePromise = new Promise((resolve, reject) => {
+    const w = window as any;
+    if (w.loadPyodide) {
+      w.loadPyodide({ indexURL: "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/" }).then(resolve, reject);
+      return;
+    }
+    const s = document.createElement("script");
+    s.src = "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js";
+    s.onload = () => (window as any).loadPyodide({ indexURL: "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/" }).then(resolve, reject);
+    s.onerror = () => reject(new Error("Failed to load Pyodide"));
+    document.head.appendChild(s);
+  });
+  return pyodidePromise;
+}
+
+// ------------------------- UI components -------------------------
+
+function Toolbar({
+  left, right,
+}: { left: React.ReactNode; right: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between px-4 py-2 border-b border-border gap-2 flex-wrap">
+      <div className="flex items-center gap-3 min-w-0">{left}</div>
+      <div className="flex gap-2 flex-wrap">{right}</div>
+    </div>
+  );
+}
+
+function CodeOutput({ html, speedup }: { html: string; speedup?: number }) {
+  return (
+    <div className="p-6 overflow-auto bg-surface/40 relative h-full">
+      <div className="text-primary mb-3 text-[10px] uppercase tracking-widest flex items-center gap-2">
+        Optimized Output
+        <span className="size-1.5 rounded-full bg-primary animate-pulse" />
+      </div>
+      <pre className="text-foreground whitespace-pre-wrap pr-2 font-mono text-sm leading-relaxed" dangerouslySetInnerHTML={{ __html: html }} />
+      {speedup !== undefined && (
+        <div className="absolute bottom-6 right-6">
+          <div className="bg-primary/10 border border-primary/20 rounded px-4 py-3 backdrop-blur-sm">
+            <div className="text-[10px] text-primary font-bold uppercase tracking-wider mb-1">Est. Speedup</div>
+            <div className="text-3xl font-mono font-bold text-primary tracking-tighter">{speedup.toFixed(1)}%</div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ChangesPanel({ changes }: { changes: Change[] }) {
+  return (
+    <div className="bg-surface/50 p-4 rounded-xl ring-1 ring-border">
+      <h3 className="text-xs font-bold uppercase tracking-widest mb-4">Applied Changes</h3>
+      <div className="space-y-4">
+        {changes.map((c, i) => (
+          <div key={i} className="space-y-1">
+            <div className={`text-sm font-medium ${c.highlight ? "text-primary" : ""}`}>{c.title}</div>
+            <div className="text-xs text-muted-foreground">{c.detail}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// SQL panel
+function SqlPanel() {
+  const [engine, setEngine] = useState<SqlEngine>("POSTGRESQL");
+  const [input, setInput] = useState(SQL_SAMPLES.POSTGRESQL);
+  const [result, setResult] = useState<Optimization>(() => optimize(SQL_SAMPLES.POSTGRESQL, "POSTGRESQL"));
   const [copied, setCopied] = useState(false);
-  const [shared, setShared] = useState(false);
+  const html = useMemo(() => highlight(result.output, "sql"), [result.output]);
 
-  const outputHtml = useMemo(() => highlight(result.output, engine), [result.output, engine]);
-
-  function handleEngine(next: Engine) {
-    setEngine(next);
-    setInput(SAMPLES[next]);
-    setResult(optimize(SAMPLES[next], next));
+  function changeEngine(e: SqlEngine) {
+    setEngine(e);
+    setInput(SQL_SAMPLES[e]);
+    setResult(optimize(SQL_SAMPLES[e], e));
   }
-
-  function handleOptimize() {
-    setRunning(true);
-    setTimeout(() => {
-      setResult(optimize(input, engine));
-      setRunning(false);
-    }, 450);
-  }
-
-  function handleCopy() {
-    navigator.clipboard?.writeText(result.output);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  }
-
-  function handleShare() {
-    const url = `${window.location.origin}/?e=${encodeURIComponent(engine)}`;
-    navigator.clipboard?.writeText(url);
-    setShared(true);
-    setTimeout(() => setShared(false), 1500);
-  }
-
-  const langLabel = isSql(engine) ? "SQL" : engine === "PYSPARK" ? "PySpark" : "Python";
 
   return (
-    <div className="grid lg:grid-cols-[1fr_320px] gap-6" style={{ animation: "fadeIn 0.8s ease-out both" }}>
+    <div className="grid lg:grid-cols-[1fr_320px] gap-6">
       <div className="flex flex-col bg-surface/50 p-1 rounded-xl ring-1 ring-border">
-        {/* Toolbar */}
-        <div className="flex items-center justify-between px-4 py-2 border-b border-border gap-2 flex-wrap">
-          <div className="flex items-center gap-3 min-w-0">
-            <select
-              value={engine}
-              onChange={(e) => handleEngine(e.target.value as Engine)}
-              className="px-2 py-1 bg-secondary rounded border border-border text-xs font-mono cursor-pointer outline-none focus:border-primary max-w-[180px]"
-            >
-              {ENGINES.map((d) => <option key={d} value={d}>{d}</option>)}
-            </select>
-            <span className="text-xs text-muted-foreground hidden sm:inline">{langLabel} engine</span>
-          </div>
-          <div className="flex gap-2">
-            <button
-              onClick={handleCopy}
-              className="text-xs bg-secondary px-3 py-1 rounded border border-border hover:border-muted-foreground transition-colors"
-            >{copied ? "Copied" : "Copy"}</button>
-            <button
-              onClick={handleOptimize}
-              disabled={running}
-              className="text-xs bg-primary text-primary-foreground font-bold px-4 py-1 rounded hover:opacity-90 disabled:opacity-60 transition"
-            >{running ? "OPTIMIZING…" : "OPTIMIZE"}</button>
-          </div>
-        </div>
-
-        {/* Editor split */}
+        <Toolbar
+          left={
+            <>
+              <select
+                value={engine}
+                onChange={(e) => changeEngine(e.target.value as SqlEngine)}
+                className="px-2 py-1 bg-secondary rounded border border-border text-xs font-mono cursor-pointer outline-none focus:border-primary max-w-[200px]"
+              >
+                {SQL_ENGINES.map((d) => <option key={d} value={d}>{d}</option>)}
+              </select>
+              <span className="text-xs text-muted-foreground hidden sm:inline">SQL engine</span>
+            </>
+          }
+          right={
+            <>
+              <button onClick={() => { navigator.clipboard?.writeText(result.output); setCopied(true); setTimeout(() => setCopied(false), 1200); }}
+                className="text-xs bg-secondary px-3 py-1 rounded border border-border hover:border-muted-foreground transition-colors">
+                {copied ? "Copied" : "Copy"}
+              </button>
+              <button onClick={() => setResult(optimize(input, engine))}
+                className="text-xs bg-primary text-primary-foreground font-bold px-4 py-1 rounded hover:opacity-90 transition">
+                OPTIMIZE
+              </button>
+            </>
+          }
+        />
         <div className="grid md:grid-cols-2 h-[480px] font-mono text-sm leading-relaxed overflow-hidden">
           <div className="p-6 border-r border-border overflow-auto bg-surface-2/40">
-            <div className="text-muted-foreground mb-3 text-[10px] uppercase tracking-widest">Input — {langLabel}</div>
-            <textarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              spellCheck={false}
-              className="w-full h-[calc(100%-1.5rem)] bg-transparent resize-none outline-none text-zinc-300 font-mono text-sm leading-relaxed"
-            />
+            <div className="text-muted-foreground mb-3 text-[10px] uppercase tracking-widest">Input — SQL</div>
+            <textarea value={input} onChange={(e) => setInput(e.target.value)} spellCheck={false}
+              className="w-full h-[calc(100%-1.5rem)] bg-transparent resize-none outline-none text-zinc-300 font-mono text-sm leading-relaxed" />
           </div>
-          <div className="p-6 overflow-auto bg-surface/40 relative">
-            <div className="text-primary mb-3 text-[10px] uppercase tracking-widest flex items-center gap-2">
-              Optimized Output
-              <span className="size-1.5 rounded-full bg-primary animate-pulse" />
-            </div>
-            <pre className="text-foreground whitespace-pre-wrap pr-2" dangerouslySetInnerHTML={{ __html: outputHtml }} />
-            <div className="absolute bottom-6 right-6">
-              <div className="bg-primary/10 border border-primary/20 rounded px-4 py-3 backdrop-blur-sm">
-                <div className="text-[10px] text-primary font-bold uppercase tracking-wider mb-1">Est. Speedup</div>
-                <div className="text-3xl font-mono font-bold text-primary tracking-tighter">
-                  {result.speedup.toFixed(1)}%
-                </div>
-              </div>
-            </div>
+          <CodeOutput html={html} speedup={result.speedup} />
+        </div>
+      </div>
+      <ChangesPanel changes={result.changes} />
+    </div>
+  );
+}
+
+// Python panel with Pyodide runner
+function PythonPanel() {
+  const [input, setInput] = useState(PY_SAMPLE);
+  const [result, setResult] = useState<Optimization>(() => optimize(PY_SAMPLE, "PYTHON"));
+  const [copied, setCopied] = useState(false);
+  const [stdout, setStdout] = useState<string>("");
+  const [running, setRunning] = useState<"idle" | "loading" | "running">("idle");
+  const [runTarget, setRunTarget] = useState<"input" | "output">("output");
+  const html = useMemo(() => highlight(result.output, "py"), [result.output]);
+
+  async function run() {
+    const code = runTarget === "input" ? input : result.output;
+    setStdout("");
+    setRunning("loading");
+    try {
+      const py = await loadPyodide();
+      setRunning("running");
+      let buf = "";
+      py.setStdout({ batched: (s: string) => { buf += s + "\n"; setStdout(buf); } });
+      py.setStderr({ batched: (s: string) => { buf += s + "\n"; setStdout(buf); } });
+      try {
+        await py.runPythonAsync(code);
+      } catch (e: any) {
+        buf += `\n[error] ${e?.message ?? e}`;
+        setStdout(buf);
+      }
+    } catch (e: any) {
+      setStdout(`[failed to load runtime] ${e?.message ?? e}`);
+    } finally {
+      setRunning("idle");
+    }
+  }
+
+  return (
+    <div className="grid lg:grid-cols-[1fr_320px] gap-6">
+      <div className="flex flex-col bg-surface/50 p-1 rounded-xl ring-1 ring-border">
+        <Toolbar
+          left={<span className="text-xs text-muted-foreground font-mono">PYTHON 3.12 · Pyodide runtime</span>}
+          right={
+            <>
+              <select value={runTarget} onChange={(e) => setRunTarget(e.target.value as any)}
+                className="px-2 py-1 bg-secondary rounded border border-border text-xs font-mono">
+                <option value="output">Run optimized</option>
+                <option value="input">Run input</option>
+              </select>
+              <button onClick={run} disabled={running !== "idle"}
+                className="text-xs bg-secondary border border-border px-3 py-1 rounded hover:border-primary disabled:opacity-50">
+                {running === "loading" ? "Loading…" : running === "running" ? "Running…" : "▶ Run"}
+              </button>
+              <button onClick={() => { navigator.clipboard?.writeText(result.output); setCopied(true); setTimeout(() => setCopied(false), 1200); }}
+                className="text-xs bg-secondary px-3 py-1 rounded border border-border">{copied ? "Copied" : "Copy"}</button>
+              <button onClick={() => setResult(optimize(input, "PYTHON"))}
+                className="text-xs bg-primary text-primary-foreground font-bold px-4 py-1 rounded hover:opacity-90">OPTIMIZE</button>
+            </>
+          }
+        />
+        <div className="grid md:grid-cols-2 h-[480px] font-mono text-sm leading-relaxed overflow-hidden">
+          <div className="p-6 border-r border-border overflow-auto bg-surface-2/40">
+            <div className="text-muted-foreground mb-3 text-[10px] uppercase tracking-widest">Input — Python</div>
+            <textarea value={input} onChange={(e) => setInput(e.target.value)} spellCheck={false}
+              className="w-full h-[calc(100%-1.5rem)] bg-transparent resize-none outline-none text-zinc-300 font-mono text-sm leading-relaxed" />
           </div>
+          <CodeOutput html={html} speedup={result.speedup} />
+        </div>
+        <div className="border-t border-border p-4 bg-surface-2/30">
+          <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">stdout</div>
+          <pre className="font-mono text-xs text-zinc-300 whitespace-pre-wrap min-h-[60px] max-h-[180px] overflow-auto">
+{stdout || "— run the script to see output —"}
+          </pre>
+        </div>
+      </div>
+      <ChangesPanel changes={result.changes} />
+    </div>
+  );
+}
+
+// PySpark panel
+function PySparkPanel() {
+  const [input, setInput] = useState(PYSPARK_SAMPLE);
+  const [result, setResult] = useState<Optimization>(() => optimize(PYSPARK_SAMPLE, "PYSPARK"));
+  const [copied, setCopied] = useState(false);
+  const html = useMemo(() => highlight(result.output, "py"), [result.output]);
+
+  return (
+    <div className="grid lg:grid-cols-[1fr_320px] gap-6">
+      <div className="flex flex-col bg-surface/50 p-1 rounded-xl ring-1 ring-border">
+        <Toolbar
+          left={<span className="text-xs text-muted-foreground font-mono">PYSPARK 3.5 · runs on your cluster</span>}
+          right={
+            <>
+              <button onClick={() => { navigator.clipboard?.writeText(result.output); setCopied(true); setTimeout(() => setCopied(false), 1200); }}
+                className="text-xs bg-secondary px-3 py-1 rounded border border-border">{copied ? "Copied" : "Copy"}</button>
+              <button onClick={() => setResult(optimize(input, "PYSPARK"))}
+                className="text-xs bg-primary text-primary-foreground font-bold px-4 py-1 rounded hover:opacity-90">OPTIMIZE</button>
+            </>
+          }
+        />
+        <div className="grid md:grid-cols-2 h-[520px] font-mono text-sm leading-relaxed overflow-hidden">
+          <div className="p-6 border-r border-border overflow-auto bg-surface-2/40">
+            <div className="text-muted-foreground mb-3 text-[10px] uppercase tracking-widest">Input — PySpark</div>
+            <textarea value={input} onChange={(e) => setInput(e.target.value)} spellCheck={false}
+              className="w-full h-[calc(100%-1.5rem)] bg-transparent resize-none outline-none text-zinc-300 font-mono text-sm leading-relaxed" />
+          </div>
+          <CodeOutput html={html} speedup={result.speedup} />
+        </div>
+      </div>
+      <ChangesPanel changes={result.changes} />
+    </div>
+  );
+}
+
+// ------------------------- Data Builder -------------------------
+
+type FieldType =
+  | "int" | "float" | "bool" | "uuid" | "name" | "email" | "company"
+  | "city" | "country" | "phone" | "date" | "datetime" | "enum" | "string" | "url" | "ip";
+
+type SchemaField = { name: string; type: FieldType; opts?: string };
+
+const FIRST = ["Aarav","Priya","Liam","Olivia","Noah","Emma","Yuki","Mateo","Zara","Kai","Aisha","Diego","Sora","Maya","Ethan","Nia"];
+const LAST = ["Sharma","Patel","Singh","Kim","Tanaka","Garcia","Smith","Johnson","Brown","Khan","Iyer","Reddy","Müller","Rossi","Silva"];
+const COMPANIES = ["Acme","Globex","Initech","Umbrella","Hooli","Stark","Wayne","Wonka","Soylent","Tyrell","Pied Piper","Massive Dynamic"];
+const CITIES = ["Bengaluru","Mumbai","Delhi","Tokyo","London","Berlin","Paris","NYC","SF","Sydney","Singapore","Toronto"];
+const COUNTRIES = ["IN","US","GB","DE","FR","JP","SG","AU","CA","BR","NL","ES"];
+
+function rand<T>(arr: T[]): T { return arr[Math.floor(Math.random() * arr.length)]; }
+function randInt(min: number, max: number) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+function uuid() {
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0; const v = c === "x" ? r : (r & 0x3) | 0x8; return v.toString(16);
+  });
+}
+function randDate(years = 3) {
+  const now = Date.now();
+  return new Date(now - randInt(0, years * 365 * 24 * 3600 * 1000));
+}
+
+function genValue(f: SchemaField): unknown {
+  switch (f.type) {
+    case "int": {
+      const [a, b] = (f.opts || "0-1000").split("-").map(Number);
+      return randInt(a || 0, b || 1000);
+    }
+    case "float": {
+      const [a, b] = (f.opts || "0-100").split("-").map(Number);
+      return +(Math.random() * ((b || 100) - (a || 0)) + (a || 0)).toFixed(2);
+    }
+    case "bool": return Math.random() > 0.5;
+    case "uuid": return uuid();
+    case "name": return `${rand(FIRST)} ${rand(LAST)}`;
+    case "email": {
+      const n = `${rand(FIRST)}.${rand(LAST)}`.toLowerCase();
+      return `${n}${randInt(1, 999)}@${rand(["gmail.com","outlook.com","proton.me","example.com"])}`;
+    }
+    case "company": return rand(COMPANIES);
+    case "city": return rand(CITIES);
+    case "country": return rand(COUNTRIES);
+    case "phone": return `+${randInt(1, 99)}-${randInt(1000000000, 9999999999)}`;
+    case "date": return randDate().toISOString().slice(0, 10);
+    case "datetime": return randDate().toISOString();
+    case "enum": {
+      const opts = (f.opts || "A,B,C").split(",").map((s) => s.trim()).filter(Boolean);
+      return rand(opts);
+    }
+    case "url": return `https://${rand(["app","api","www","cdn"])}.${rand(COMPANIES).toLowerCase().replace(/\s+/g, "")}.com/${uuid().slice(0, 8)}`;
+    case "ip": return `${randInt(1, 255)}.${randInt(0, 255)}.${randInt(0, 255)}.${randInt(0, 255)}`;
+    case "string":
+    default: {
+      const len = +(f.opts || "8") || 8;
+      return Math.random().toString(36).slice(2, 2 + len);
+    }
+  }
+}
+
+function toCsv(rows: Record<string, unknown>[]): string {
+  if (!rows.length) return "";
+  const cols = Object.keys(rows[0]);
+  const esc = (v: unknown) => {
+    const s = String(v ?? "");
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  return [cols.join(","), ...rows.map((r) => cols.map((c) => esc(r[c])).join(","))].join("\n");
+}
+
+function toSqlInsert(table: string, rows: Record<string, unknown>[]): string {
+  if (!rows.length) return "";
+  const cols = Object.keys(rows[0]);
+  const lit = (v: unknown) => {
+    if (v === null || v === undefined) return "NULL";
+    if (typeof v === "number" || typeof v === "boolean") return String(v);
+    return `'${String(v).replace(/'/g, "''")}'`;
+  };
+  return `INSERT INTO ${table} (${cols.join(", ")}) VALUES\n` +
+    rows.map((r) => `  (${cols.map((c) => lit(r[c])).join(", ")})`).join(",\n") + ";";
+}
+
+const FIELD_TYPES: FieldType[] = ["int","float","bool","uuid","name","email","company","city","country","phone","date","datetime","enum","string","url","ip"];
+
+function DataBuilderPanel() {
+  const [fields, setFields] = useState<SchemaField[]>([
+    { name: "id", type: "uuid" },
+    { name: "name", type: "name" },
+    { name: "email", type: "email" },
+    { name: "country", type: "country" },
+    { name: "amount", type: "float", opts: "10-9999" },
+    { name: "tier", type: "enum", opts: "free,pro,team" },
+    { name: "active", type: "bool" },
+    { name: "signed_up_at", type: "datetime" },
+  ]);
+  const [count, setCount] = useState(25);
+  const [format, setFormat] = useState<"json" | "csv" | "sql">("json");
+  const [table, setTable] = useState("users");
+  const [rows, setRows] = useState<Record<string, unknown>[]>([]);
+  const [copied, setCopied] = useState(false);
+
+  function generate() {
+    const data: Record<string, unknown>[] = [];
+    for (let i = 0; i < count; i++) {
+      const r: Record<string, unknown> = {};
+      for (const f of fields) r[f.name || `col_${i}`] = genValue(f);
+      data.push(r);
+    }
+    setRows(data);
+  }
+
+  useEffect(() => { generate(); /* eslint-disable-next-line */ }, []);
+
+  const output = useMemo(() => {
+    if (!rows.length) return "";
+    if (format === "json") return JSON.stringify(rows, null, 2);
+    if (format === "csv") return toCsv(rows);
+    return toSqlInsert(table, rows);
+  }, [rows, format, table]);
+
+  const html = useMemo(() => {
+    if (format === "sql") return highlight(output, "sql");
+    return escapeHtml(output);
+  }, [output, format]);
+
+  function updateField(i: number, patch: Partial<SchemaField>) {
+    setFields((f) => f.map((x, idx) => (idx === i ? { ...x, ...patch } : x)));
+  }
+  function addField() {
+    setFields((f) => [...f, { name: `field_${f.length + 1}`, type: "string" }]);
+  }
+  function removeField(i: number) {
+    setFields((f) => f.filter((_, idx) => idx !== i));
+  }
+
+  function download() {
+    const ext = format === "json" ? "json" : format === "csv" ? "csv" : "sql";
+    const blob = new Blob([output], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `${table || "data"}.${ext}`; a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  return (
+    <div className="grid lg:grid-cols-[380px_1fr] gap-6">
+      {/* Schema editor */}
+      <div className="bg-surface/50 rounded-xl ring-1 ring-border p-4 flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-xs font-bold uppercase tracking-widest">Schema</h3>
+          <button onClick={addField} className="text-xs bg-secondary border border-border px-2 py-1 rounded hover:border-primary">+ Field</button>
+        </div>
+        <div className="space-y-2 max-h-[420px] overflow-auto pr-1">
+          {fields.map((f, i) => (
+            <div key={i} className="grid grid-cols-[1fr_110px_70px_24px] gap-2 items-center">
+              <input value={f.name} onChange={(e) => updateField(i, { name: e.target.value })}
+                className="bg-secondary border border-border rounded px-2 py-1 text-xs font-mono outline-none focus:border-primary" />
+              <select value={f.type} onChange={(e) => updateField(i, { type: e.target.value as FieldType })}
+                className="bg-secondary border border-border rounded px-1 py-1 text-xs font-mono outline-none focus:border-primary">
+                {FIELD_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+              <input value={f.opts || ""} onChange={(e) => updateField(i, { opts: e.target.value })}
+                placeholder={f.type === "enum" ? "a,b,c" : f.type === "int" || f.type === "float" ? "0-100" : ""}
+                className="bg-secondary border border-border rounded px-2 py-1 text-xs font-mono outline-none focus:border-primary" />
+              <button onClick={() => removeField(i)} className="text-muted-foreground hover:text-destructive text-sm">×</button>
+            </div>
+          ))}
+        </div>
+
+        <div className="border-t border-border pt-3 space-y-3">
+          <label className="block text-[10px] uppercase tracking-widest text-muted-foreground">
+            Rows
+            <input type="number" min={1} max={5000} value={count} onChange={(e) => setCount(+e.target.value || 1)}
+              className="w-full mt-1 bg-secondary border border-border rounded px-2 py-1 text-xs font-mono outline-none focus:border-primary" />
+          </label>
+          <label className="block text-[10px] uppercase tracking-widest text-muted-foreground">
+            Format
+            <select value={format} onChange={(e) => setFormat(e.target.value as any)}
+              className="w-full mt-1 bg-secondary border border-border rounded px-2 py-1 text-xs font-mono outline-none focus:border-primary">
+              <option value="json">JSON</option>
+              <option value="csv">CSV</option>
+              <option value="sql">SQL INSERT</option>
+            </select>
+          </label>
+          {format === "sql" && (
+            <label className="block text-[10px] uppercase tracking-widest text-muted-foreground">
+              Table name
+              <input value={table} onChange={(e) => setTable(e.target.value)}
+                className="w-full mt-1 bg-secondary border border-border rounded px-2 py-1 text-xs font-mono outline-none focus:border-primary" />
+            </label>
+          )}
+          <button onClick={generate} className="w-full bg-primary text-primary-foreground font-bold text-xs py-2 rounded hover:opacity-90">
+            GENERATE {count} ROWS
+          </button>
         </div>
       </div>
 
-      {/* Analysis panel */}
-      <div className="flex flex-col gap-4">
-        <div className="bg-surface/50 p-4 rounded-xl ring-1 ring-border">
-          <h3 className="text-xs font-bold uppercase tracking-widest mb-4">Applied Changes</h3>
-          <div className="space-y-4">
-            {result.changes.map((c, i) => (
-              <div key={i} className="space-y-1">
-                <div className={`text-sm font-medium ${c.highlight ? "text-primary" : ""}`}>{c.title}</div>
-                <div className="text-xs text-muted-foreground">{c.detail}</div>
-              </div>
-            ))}
-          </div>
+      {/* Output */}
+      <div className="flex flex-col bg-surface/50 p-1 rounded-xl ring-1 ring-border">
+        <Toolbar
+          left={<span className="text-xs text-muted-foreground font-mono">{rows.length} rows · {format.toUpperCase()}</span>}
+          right={
+            <>
+              <button onClick={() => { navigator.clipboard?.writeText(output); setCopied(true); setTimeout(() => setCopied(false), 1200); }}
+                className="text-xs bg-secondary px-3 py-1 rounded border border-border">{copied ? "Copied" : "Copy"}</button>
+              <button onClick={download}
+                className="text-xs bg-primary text-primary-foreground font-bold px-4 py-1 rounded hover:opacity-90">Download</button>
+            </>
+          }
+        />
+        <div className="p-6 overflow-auto bg-surface/40 h-[520px]">
+          <pre className="text-foreground whitespace-pre font-mono text-xs leading-relaxed" dangerouslySetInnerHTML={{ __html: html }} />
         </div>
-        <button
-          onClick={handleShare}
-          className="w-full py-3 bg-secondary rounded-lg text-sm font-medium border border-border hover:bg-muted transition-colors"
-        >{shared ? "Link Copied" : "Share Analysis"}</button>
       </div>
+    </div>
+  );
+}
+
+// ------------------------- Tabs shell -------------------------
+
+const TABS: { id: Mode; label: string; sub: string }[] = [
+  { id: "SQL", label: "SQL", sub: "10 engines" },
+  { id: "PYTHON", label: "Python", sub: "+ runtime" },
+  { id: "PYSPARK", label: "PySpark", sub: "Catalyst-aware" },
+  { id: "DATA", label: "Data Builder", sub: "schema → rows" },
+];
+
+export function Workspace() {
+  const [mode, setMode] = useState<Mode>("SQL");
+  const ref = useRef<HTMLDivElement>(null);
+
+  return (
+    <div ref={ref} style={{ animation: "fadeIn 0.6s ease-out both" }}>
+      <div className="flex flex-wrap gap-2 mb-4">
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setMode(t.id)}
+            className={`px-4 py-2 rounded-lg text-sm font-mono font-bold border transition-colors flex items-center gap-2 ${
+              mode === t.id
+                ? "bg-primary text-primary-foreground border-primary"
+                : "bg-surface/40 border-border text-muted-foreground hover:text-foreground hover:border-muted-foreground"
+            }`}
+          >
+            <span>{t.label}</span>
+            <span className={`text-[10px] uppercase tracking-widest ${mode === t.id ? "opacity-80" : "text-muted-foreground"}`}>
+              {t.sub}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      {mode === "SQL" && <SqlPanel />}
+      {mode === "PYTHON" && <PythonPanel />}
+      {mode === "PYSPARK" && <PySparkPanel />}
+      {mode === "DATA" && <DataBuilderPanel />}
     </div>
   );
 }
