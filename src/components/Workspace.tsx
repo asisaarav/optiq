@@ -810,6 +810,7 @@ function PySparkPanel() {
   const [result, setResult] = useState<Optimization>(() => optimize(PYSPARK_SAMPLE, "PYSPARK"));
   const [copied, setCopied] = useState(false);
   const html = useMemo(() => highlight(result.output, "py"), [result.output]);
+  const liveDiagnostics = useMemo(() => validate(input, "PYSPARK"), [input]);
 
   return (
     <div className="grid lg:grid-cols-[1fr_320px] gap-6">
