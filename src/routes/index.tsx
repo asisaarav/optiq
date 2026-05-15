@@ -1,26 +1,123 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { Nav } from "@/components/Nav";
+import { Workspace } from "@/components/Workspace";
 
 export const Route = createFileRoute("/")({
   component: Index,
 });
 
-// IMPORTANT: Replace this placeholder. For sites with multiple pages (About, Services, Contact, etc.),
-// create separate route files (about.tsx, services.tsx, contact.tsx) — don't put all pages in this file.
-function PlaceholderIndex() {
+function Index() {
   return (
-    <div
-      className="flex min-h-screen items-center justify-center"
-      style={{ backgroundColor: "#fcfbf8" }}
-    >
-      <img
-        data-lovable-blank-page-placeholder="REMOVE_THIS"
-        src="https://cdn.gpteng.co/blank-app-v1.svg"
-        alt="Your app will live here!"
-      />
+    <div className="min-h-screen bg-background text-foreground selection:bg-primary/30">
+      <Nav />
+
+      {/* Hero + Workspace */}
+      <section className="max-w-7xl mx-auto px-6 pt-20 pb-32">
+        <div className="max-w-3xl mb-16" style={{ animation: "fadeIn 0.6s ease-out" }}>
+          <h1 className="text-5xl font-bold tracking-tight mb-6 text-balance">
+            Your SQL, but <span className="text-primary">10x faster</span>. No setup required.
+          </h1>
+          <p className="text-lg text-muted-foreground text-pretty max-w-[60ch]">
+            Paste a slow query. We rewrite it using index hints, join reordering, and predicate
+            pushdowns. Instant performance for Postgres, MySQL, Snowflake, and BigQuery.
+          </p>
+        </div>
+        <Workspace />
+      </section>
+
+      {/* Dialects */}
+      <section id="dialects" className="border-y border-border py-12 bg-surface-2">
+        <div className="max-w-7xl mx-auto px-6 flex flex-wrap justify-between items-center gap-6 opacity-50 grayscale contrast-125">
+          {["POSTGRESQL", "MYSQL", "SNOWFLAKE", "BIGQUERY", "REDSHIFT"].map((d) => (
+            <span key={d} className="font-mono font-bold">{d}</span>
+          ))}
+        </div>
+      </section>
+
+      {/* API */}
+      <section id="api" className="max-w-7xl mx-auto px-6 py-32 grid md:grid-cols-2 gap-16 items-center">
+        <div>
+          <h2 className="text-3xl font-bold tracking-tight mb-4">Drop it into your CI</h2>
+          <p className="text-muted-foreground text-pretty max-w-[48ch] mb-6">
+            Catch performance regressions before they ship. One HTTP call returns the optimized
+            query and an explanation list — pipe it into your code review bot.
+          </p>
+          <a href="#pricing" className="text-primary text-sm font-semibold hover:underline">
+            View API pricing →
+          </a>
+        </div>
+        <div className="bg-surface rounded-xl ring-1 ring-border p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <span className="size-3 rounded-full bg-secondary" />
+            <span className="size-3 rounded-full bg-secondary" />
+            <span className="size-3 rounded-full bg-secondary" />
+            <span className="ml-3 text-xs font-mono text-muted-foreground">bash</span>
+          </div>
+          <pre className="font-mono text-sm text-zinc-300 leading-relaxed overflow-x-auto">
+{`curl https://api.queryflow.dev/v1/optimize \\
+  -H "Authorization: Bearer $QF_KEY" \\
+  -d '{
+    "dialect": "postgres",
+    "sql": "SELECT * FROM orders WHERE ..."
+  }'`}
+          </pre>
+        </div>
+      </section>
+
+      {/* Pricing */}
+      <section id="pricing" className="max-w-7xl mx-auto px-6 py-32 border-t border-border">
+        <div className="mb-16">
+          <h2 className="text-3xl font-bold tracking-tight mb-2">Scale with your data</h2>
+          <p className="text-muted-foreground">Choose a plan that fits your engineering team.</p>
+        </div>
+        <div className="grid md:grid-cols-4 gap-6">
+          {[
+            { name: "Free", price: "$0", items: ["100 optimizations / mo", "Manual paste only", "Core dialects"], cta: "Get Started" },
+            { name: "Pro", price: "$29", suffix: "/mo", items: ["Unlimited queries", "CLI tool access", "Priority support"], cta: "Try Pro", popular: true },
+            { name: "Team", price: "$99", suffix: "/mo", items: ["Shared workspaces", "SSO / auth", "Audit logs"], cta: "Contact Sales" },
+            { name: "API", price: "$0.01", suffix: "/call", items: ["Pay-as-you-go", "99.9% uptime SLA", "Bulk processing"], cta: "Get API Key" },
+          ].map((p) => (
+            <div
+              key={p.name}
+              className={`p-6 rounded-xl ${p.popular ? "ring-2 ring-primary bg-surface/40" : "ring-1 ring-border bg-surface/20"} relative`}
+            >
+              {p.popular && (
+                <div className="absolute -top-3 left-6 px-2 py-0.5 bg-primary text-primary-foreground text-[10px] font-bold rounded">
+                  POPULAR
+                </div>
+              )}
+              <div className={`text-xs font-bold uppercase mb-4 ${p.popular ? "text-primary" : "text-muted-foreground"}`}>{p.name}</div>
+              <div className="text-3xl font-bold mb-4">
+                {p.price}
+                {p.suffix && <span className="text-sm font-normal text-muted-foreground">{p.suffix}</span>}
+              </div>
+              <ul className="text-sm space-y-3 text-muted-foreground mb-8">
+                {p.items.map((i) => <li key={i}>{i}</li>)}
+              </ul>
+              <button
+                className={`w-full py-2 rounded text-sm font-bold transition-colors ${
+                  p.popular
+                    ? "bg-primary text-primary-foreground hover:opacity-90"
+                    : "border border-border hover:bg-secondary"
+                }`}
+              >
+                {p.cta}
+              </button>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <footer className="border-t border-border py-12 bg-surface-2 text-xs text-muted-foreground">
+        <div className="max-w-7xl mx-auto px-6 flex flex-wrap gap-4 justify-between">
+          <div>© 2026 QueryFlow Engine. Built for performance.</div>
+          <div className="flex gap-6">
+            <a href="#" className="hover:text-foreground">Status</a>
+            <a href="#" className="hover:text-foreground">Privacy</a>
+            <a href="#" className="hover:text-foreground">Terms</a>
+          </div>
+        </div>
+      </footer>
     </div>
   );
-}
-
-function Index() {
-  return <PlaceholderIndex />;
 }
