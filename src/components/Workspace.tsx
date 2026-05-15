@@ -413,7 +413,7 @@ function CodeOutput({ html, speedup }: { html: string; speedup?: number }) {
 function ChangesPanel({ changes }: { changes: Change[] }) {
   return (
     <div className="bg-surface/50 p-4 rounded-xl ring-1 ring-border">
-      <h3 className="text-xs font-bold uppercase tracking-widest mb-4">Applied Changes</h3>
+      <h2 className="text-xs font-bold uppercase tracking-widest mb-4">Applied Changes</h2>
       <div className="space-y-4">
         {changes.map((c, i) => (
           <div key={i} className="space-y-1">
@@ -446,7 +446,7 @@ function TipsPanel({ engineKey }: { engineKey: TipsKey }) {
   return (
     <div className="bg-surface/50 p-4 rounded-xl ring-1 ring-border">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-xs font-bold uppercase tracking-widest">Engine Tips · {engineKey}</h3>
+        <h2 className="text-xs font-bold uppercase tracking-widest">Engine Tips · {engineKey}</h2>
         <span className="text-[10px] text-muted-foreground font-mono">best practices</span>
       </div>
       <div className="flex flex-wrap gap-1 mb-4">
@@ -510,6 +510,7 @@ function SqlPanel() {
           left={
             <>
               <select
+                aria-label="SQL engine"
                 value={engine}
                 onChange={(e) => changeEngine(e.target.value as SqlEngine)}
                 className="px-2 py-1 bg-secondary rounded border border-border text-xs font-mono cursor-pointer outline-none focus:border-primary max-w-[200px]"
@@ -589,7 +590,7 @@ function PythonPanel() {
           left={<span className="text-xs text-muted-foreground font-mono">PYTHON 3.12 · Pyodide runtime</span>}
           right={
             <>
-              <select value={runTarget} onChange={(e) => setRunTarget(e.target.value as any)}
+              <select aria-label="Run target" value={runTarget} onChange={(e) => setRunTarget(e.target.value as any)}
                 className="px-2 py-1 bg-secondary rounded border border-border text-xs font-mono">
                 <option value="output">Run optimized</option>
                 <option value="input">Run input</option>
@@ -818,19 +819,19 @@ function DataBuilderPanel() {
       {/* Schema editor */}
       <div className="bg-surface/50 rounded-xl ring-1 ring-border p-4 flex flex-col gap-3">
         <div className="flex items-center justify-between">
-          <h3 className="text-xs font-bold uppercase tracking-widest">Schema</h3>
+          <h2 className="text-xs font-bold uppercase tracking-widest">Schema</h2>
           <button onClick={addField} className="text-xs bg-secondary border border-border px-2 py-1 rounded hover:border-primary">+ Field</button>
         </div>
         <div className="space-y-2 max-h-[420px] overflow-auto pr-1">
           {fields.map((f, i) => (
             <div key={i} className="grid grid-cols-[1fr_110px_70px_24px] gap-2 items-center">
-              <input value={f.name} onChange={(e) => updateField(i, { name: e.target.value })}
+              <input aria-label="Field name" value={f.name} onChange={(e) => updateField(i, { name: e.target.value })}
                 className="bg-secondary border border-border rounded px-2 py-1 text-xs font-mono outline-none focus:border-primary" />
-              <select value={f.type} onChange={(e) => updateField(i, { type: e.target.value as FieldType })}
+              <select aria-label="Field type" value={f.type} onChange={(e) => updateField(i, { type: e.target.value as FieldType })}
                 className="bg-secondary border border-border rounded px-1 py-1 text-xs font-mono outline-none focus:border-primary">
                 {FIELD_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
               </select>
-              <input value={f.opts || ""} onChange={(e) => updateField(i, { opts: e.target.value })}
+              <input aria-label="Field options" value={f.opts || ""} onChange={(e) => updateField(i, { opts: e.target.value })}
                 placeholder={f.type === "enum" ? "a,b,c" : f.type === "int" || f.type === "float" ? "0-100" : ""}
                 className="bg-secondary border border-border rounded px-2 py-1 text-xs font-mono outline-none focus:border-primary" />
               <button onClick={() => removeField(i)} className="text-muted-foreground hover:text-destructive text-sm">×</button>
