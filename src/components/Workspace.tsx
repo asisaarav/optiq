@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ENGINE_TIPS, type Tip, type TipCategory, type TipsKey } from "@/lib/engineTips";
 
 type Mode = "SQL" | "PYTHON" | "PYSPARK" | "DATA";
 
@@ -425,6 +426,69 @@ function ChangesPanel({ changes }: { changes: Change[] }) {
   );
 }
 
+const CATEGORY_COLORS: Record<TipCategory, string> = {
+  "Partitioning": "bg-blue-500/10 text-blue-300 border-blue-500/30",
+  "Indexing": "bg-emerald-500/10 text-emerald-300 border-emerald-500/30",
+  "Clustering": "bg-violet-500/10 text-violet-300 border-violet-500/30",
+  "Functions & UDFs": "bg-amber-500/10 text-amber-300 border-amber-500/30",
+  "Concurrency / Threading": "bg-rose-500/10 text-rose-300 border-rose-500/30",
+  "Memory & Caching": "bg-cyan-500/10 text-cyan-300 border-cyan-500/30",
+  "Statistics & Planner": "bg-fuchsia-500/10 text-fuchsia-300 border-fuchsia-500/30",
+  "I/O & File Layout": "bg-orange-500/10 text-orange-300 border-orange-500/30",
+};
+
+function TipsPanel({ engineKey }: { engineKey: TipsKey }) {
+  const tips = ENGINE_TIPS[engineKey] ?? [];
+  const categories = Array.from(new Set(tips.map((t) => t.category))) as TipCategory[];
+  const [filter, setFilter] = useState<TipCategory | "ALL">("ALL");
+  const filtered = filter === "ALL" ? tips : tips.filter((t) => t.category === filter);
+
+  return (
+    <div className="bg-surface/50 p-4 rounded-xl ring-1 ring-border">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-xs font-bold uppercase tracking-widest">Engine Tips · {engineKey}</h3>
+        <span className="text-[10px] text-muted-foreground font-mono">best practices</span>
+      </div>
+      <div className="flex flex-wrap gap-1 mb-4">
+        <button
+          onClick={() => setFilter("ALL")}
+          className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${
+            filter === "ALL" ? "bg-primary text-primary-foreground border-primary" : "bg-secondary border-border text-muted-foreground hover:text-foreground"
+          }`}
+        >ALL</button>
+        {categories.map((c) => (
+          <button
+            key={c}
+            onClick={() => setFilter(c)}
+            className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${
+              filter === c ? "bg-primary text-primary-foreground border-primary" : "bg-secondary border-border text-muted-foreground hover:text-foreground"
+            }`}
+          >{c}</button>
+        ))}
+      </div>
+      <div className="space-y-3 max-h-[460px] overflow-auto pr-1">
+        {filtered.map((t: Tip, i) => (
+          <div key={i} className="space-y-1 pb-3 border-b border-border last:border-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className={`text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded border ${CATEGORY_COLORS[t.category]}`}>
+                {t.category}
+              </span>
+            </div>
+            <div className="text-sm font-medium text-foreground">{t.title}</div>
+            <div className="text-xs text-muted-foreground leading-relaxed">{t.body}</div>
+          </div>
+        ))}
+        {filtered.length === 0 && (
+          <div className="text-xs text-muted-foreground italic">No tips in this category yet.</div>
+        )}
+      </div>
+      <div className="mt-3 pt-3 border-t border-border text-[10px] text-muted-foreground">
+        Sourced from official docs (Spark tuning guide, ClickHouse docs, Postgres planner notes) and OSS community best-practice repos.
+      </div>
+    </div>
+  );
+}
+
 // SQL panel
 function SqlPanel() {
   const [engine, setEngine] = useState<SqlEngine>("POSTGRESQL");
@@ -477,7 +541,10 @@ function SqlPanel() {
           <CodeOutput html={html} speedup={result.speedup} />
         </div>
       </div>
-      <ChangesPanel changes={result.changes} />
+      <div className="flex flex-col gap-4">
+        <ChangesPanel changes={result.changes} />
+        <TipsPanel engineKey={engine as TipsKey} />
+      </div>
     </div>
   );
 }
@@ -553,7 +620,10 @@ function PythonPanel() {
           </pre>
         </div>
       </div>
-      <ChangesPanel changes={result.changes} />
+      <div className="flex flex-col gap-4">
+        <ChangesPanel changes={result.changes} />
+        <TipsPanel engineKey="PYTHON" />
+      </div>
     </div>
   );
 }
@@ -588,7 +658,10 @@ function PySparkPanel() {
           <CodeOutput html={html} speedup={result.speedup} />
         </div>
       </div>
-      <ChangesPanel changes={result.changes} />
+      <div className="flex flex-col gap-4">
+        <ChangesPanel changes={result.changes} />
+        <TipsPanel engineKey="PYSPARK" />
+      </div>
     </div>
   );
 }
