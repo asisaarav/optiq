@@ -541,7 +541,10 @@ function SqlPanel() {
           <CodeOutput html={html} speedup={result.speedup} />
         </div>
       </div>
-      <ChangesPanel changes={result.changes} />
+      <div className="flex flex-col gap-4">
+        <ChangesPanel changes={result.changes} />
+        <TipsPanel engineKey={engine as TipsKey} />
+      </div>
     </div>
   );
 }
@@ -617,7 +620,10 @@ function PythonPanel() {
           </pre>
         </div>
       </div>
-      <ChangesPanel changes={result.changes} />
+      <div className="flex flex-col gap-4">
+        <ChangesPanel changes={result.changes} />
+        <TipsPanel engineKey="PYTHON" />
+      </div>
     </div>
   );
 }
@@ -652,7 +658,10 @@ function PySparkPanel() {
           <CodeOutput html={html} speedup={result.speedup} />
         </div>
       </div>
-      <ChangesPanel changes={result.changes} />
+      <div className="flex flex-col gap-4">
+        <ChangesPanel changes={result.changes} />
+        <TipsPanel engineKey="PYSPARK" />
+      </div>
     </div>
   );
 }
