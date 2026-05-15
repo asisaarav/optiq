@@ -826,6 +826,7 @@ function PySparkPanel() {
             </>
           }
         />
+        <DiagnosticsBar diagnostics={liveDiagnostics} />
         <div className="grid md:grid-cols-2 h-[520px] font-mono text-sm leading-relaxed overflow-hidden">
           <div className="p-6 border-r border-border overflow-auto bg-surface-2/40">
             <div className="text-muted-foreground mb-3 text-[10px] uppercase tracking-widest">Input — PySpark</div>
