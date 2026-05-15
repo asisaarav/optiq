@@ -117,33 +117,9 @@ function optimize(input: string, engine: Engine): Optimization {
   let output = trimmed;
 
   if (engine === "PYTHON") {
-    if (/for\s+\w+\s+in\s+range\(len\(/.test(output)) {
-      output = output.replace(
-        /result\s*=\s*\[\][\s\S]*?for\s+i\s+in\s+range\(len\(items\)\):[\s\S]*?items\[i\]\["value"\]\s*\*\s*2\)/,
-        `result = [item["value"] * 2 for item in items if item["active"]]`,
-      );
-      changes.push({ title: "List comprehension", detail: "Replaced index loop with comprehension — ~3x faster, more idiomatic.", highlight: true });
-    }
-    if (/==\s*True/.test(output)) {
-      output = output.replace(/==\s*True/g, "");
-      changes.push({ title: "Truthy check", detail: "Removed `== True` — direct truthiness is faster and PEP 8 compliant." });
-    }
-    if (/total\s*=\s*0[\s\S]*?for\s+\w+\s+in[\s\S]*?total\s*=\s*total\s*\+/.test(output)) {
-      output = output.replace(/total\s*=\s*0\s*\nfor\s+(\w+)\s+in\s+(\w+):\s*\n\s*total\s*=\s*total\s*\+\s*\1/, `total = sum($2)`);
-      changes.push({ title: "Built-in sum()", detail: "Replaced manual accumulator with `sum()` — C-level loop." });
-    }
+    return optimizePython(trimmed);
   } else if (engine === "PYSPARK") {
-    if (/\.collect\(\)/.test(output) && /for\s+\w+\s+in/.test(output)) {
-      output = output.replace(/\.collect\(\)\s*\nfor\s+row\s+in\s+result:\s*\n\s*print\(row\)/, `.show()`);
-      changes.push({ title: "Avoid collect()", detail: "Replaced driver-side collect+loop with `.show()` — keeps work distributed.", highlight: true });
-    }
-    output = output.replace(/df\s*=\s*df\.filter[\s\S]*?df\s*=\s*df\.withColumn[\s\S]*?\n/, (m) =>
-      m.replace(/df\s*=\s*/g, "").replace(/\n/g, " \\\n  ").replace(/^/, "df = (df\n  ").concat(")\n"),
-    );
-    if (/\.filter\([^)]*country/.test(output)) {
-      changes.push({ title: "Predicate pushdown", detail: "Filter pushed to Parquet scan — reads less data from S3." });
-    }
-    changes.push({ title: "Method chaining", detail: "Chained transforms enable Catalyst whole-stage codegen optimization." });
+    return optimizePySpark(trimmed);
   } else {
     // SQL engines
     if (/SELECT\s+\*/i.test(output)) {
