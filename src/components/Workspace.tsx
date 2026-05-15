@@ -561,8 +561,7 @@ function normalizeSqlForRunner(query: string) {
     .replace(/bronze\.transactions/gi, "transactions")
     .replace(/\bROWNUM\s*<=\s*(\d+)/gi, "1 = 1 LIMIT $1")
     .replace(/FETCH\s+FIRST\s+(\d+)\s+ROWS\s+ONLY/gi, "LIMIT $1")
-    .replace(/SELECT\s+TOP\s+(\d+)\s+/i, "SELECT ")
-    .replace(/\b(total)\b/gi, "[$1]");
+    .replace(/SELECT\s+TOP\s+(\d+)\s+/i, "SELECT ");
 
   q = q.replace(/\[(total)\]/gi, "__TOTAL_COL__");
   q = q.replace(/\b(total)\b/gi, "[$1]").replace(/__TOTAL_COL__/g, "[total]");
