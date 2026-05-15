@@ -137,7 +137,8 @@ function highlight(code: string, kind: "sql" | "py") {
 }
 
 type Change = { title: string; detail: string; highlight?: boolean };
-type Optimization = { output: string; speedup: number; changes: Change[] };
+type Diagnostic = { severity: "error" | "warn"; line?: number; message: string };
+type Optimization = { output: string; speedup: number; changes: Change[]; diagnostics: Diagnostic[] };
 
 function buildHeader(engine: string, changes: Change[]) {
   return [
@@ -157,54 +158,167 @@ function dedupeImports(lines: string[]) {
   return { imports: [...imports], rest };
 }
 
+// --- Syntax validators (lightweight, no external parser) ---
+
+function validateBrackets(code: string, lang: "sql" | "py"): Diagnostic[] {
+  const diags: Diagnostic[] = [];
+  const stack: { ch: string; line: number }[] = [];
+  const pairs: Record<string, string> = { ")": "(", "]": "[", "}": "{" };
+  let line = 1;
+  let inStr: string | null = null;
+  let inLineCom = false;
+  for (let i = 0; i < code.length; i++) {
+    const c = code[i];
+    if (c === "\n") { line++; inLineCom = false; continue; }
+    if (inLineCom) continue;
+    if (inStr) {
+      if (c === "\\") { i++; continue; }
+      if (c === inStr) inStr = null;
+      continue;
+    }
+    if (c === "'" || c === '"') { inStr = c; continue; }
+    if (lang === "sql" && c === "-" && code[i + 1] === "-") { inLineCom = true; continue; }
+    if (lang === "py" && c === "#") { inLineCom = true; continue; }
+    if (c === "(" || c === "[" || c === "{") stack.push({ ch: c, line });
+    else if (c === ")" || c === "]" || c === "}") {
+      const top = stack.pop();
+      if (!top || top.ch !== pairs[c]) {
+        diags.push({ severity: "error", line, message: `Unmatched '${c}'` });
+      }
+    }
+  }
+  if (inStr) diags.push({ severity: "error", line, message: `Unterminated string literal (${inStr})` });
+  for (const s of stack) diags.push({ severity: "error", line: s.line, message: `Unclosed '${s.ch}'` });
+  return diags;
+}
+
+function validateSql(code: string): Diagnostic[] {
+  const diags = validateBrackets(code, "sql");
+  const trimmed = code.trim();
+  if (trimmed && !/;\s*$/.test(trimmed)) diags.push({ severity: "warn", message: "Missing trailing semicolon" });
+  if (/\bFORM\b/i.test(code)) diags.push({ severity: "error", message: "Typo: 'FORM' — did you mean 'FROM'?" });
+  if (/\bSELCT\b/i.test(code)) diags.push({ severity: "error", message: "Typo: 'SELCT' — did you mean 'SELECT'?" });
+  if (/\bWEHRE\b/i.test(code)) diags.push({ severity: "error", message: "Typo: 'WEHRE' — did you mean 'WHERE'?" });
+  if (/\bSELECT\b/i.test(code) && !/\bFROM\b/i.test(code) && !/\bSELECT\s+\d/i.test(code)) {
+    diags.push({ severity: "warn", message: "SELECT without FROM" });
+  }
+  if (/\bGROUP\s+BY\b/i.test(code) && /\bSELECT\b[\s\S]*?(\bSUM\b|\bAVG\b|\bCOUNT\b|\bMIN\b|\bMAX\b)/i.test(code) === false) {
+    // soft hint
+  }
+  return diags;
+}
+
+function validatePython(code: string): Diagnostic[] {
+  const diags = validateBrackets(code, "py");
+  const lines = code.split("\n");
+  lines.forEach((l, idx) => {
+    const ln = idx + 1;
+    const t = l.replace(/#.*$/, "");
+    if (/^\s*(def|class|if|elif|else|for|while|try|except|finally|with|elif)\b[^:]*$/.test(t) && t.trim() !== "")
+      diags.push({ severity: "error", line: ln, message: "Missing ':' at end of statement" });
+    if (/^\s*print\s+[^(\s]/.test(t)) diags.push({ severity: "error", line: ln, message: "`print` is a function — use print(...)" });
+    if (/\bprint\s*\(.*[^)]\s*$/.test(t) && !/[)\\]\s*$/.test(t)) {
+      // unclosed print — caught by bracket validator generally
+    }
+    if (/\t/.test(l) && / {2,}/.test(l)) diags.push({ severity: "warn", line: ln, message: "Mixed tabs and spaces" });
+  });
+  return diags;
+}
+
+function validatePySpark(code: string): Diagnostic[] {
+  const diags = validatePython(code);
+  if (/\.collect\(\)/.test(code)) diags.push({ severity: "warn", message: ".collect() materializes to driver — risky on large data" });
+  if (/\.toPandas\(\)/.test(code)) diags.push({ severity: "warn", message: ".toPandas() pulls all rows to driver memory" });
+  return diags;
+}
+
+function validate(code: string, engine: Engine): Diagnostic[] {
+  if (engine === "PYTHON") return validatePython(code);
+  if (engine === "PYSPARK") return validatePySpark(code);
+  return validateSql(code);
+}
+
 function optimizePython(input: string): Optimization {
   const changes: Change[] = [];
+  const diagnostics = validatePython(input);
   const lines = input.split("\n");
   const { imports, rest } = dedupeImports(lines);
   let body = rest.join("\n");
 
+  // Generic transforms (apply to any code, not just the sample)
+  if (/==\s*True\b/.test(body)) {
+    body = body.replace(/\s*==\s*True\b/g, "");
+    changes.push({ title: "Truthy check", detail: "Dropped `== True` per PEP 8." });
+  }
+  if (/==\s*False\b/.test(body)) {
+    body = body.replace(/(\b\w+(?:\[[^\]]+\])?)\s*==\s*False\b/g, "not $1");
+    changes.push({ title: "Truthy check", detail: "Replaced `== False` with `not`." });
+  }
+  if (/==\s*None\b|!=\s*None\b/.test(body)) {
+    body = body.replace(/==\s*None\b/g, "is None").replace(/!=\s*None\b/g, "is not None");
+    changes.push({ title: "Identity vs None", detail: "Use `is None` / `is not None`." });
+  }
+  if (/len\(\s*(\w+)\s*\)\s*==\s*0/.test(body)) {
+    body = body.replace(/len\(\s*(\w+)\s*\)\s*==\s*0/g, "not $1");
+    changes.push({ title: "Empty check", detail: "Replaced `len(x) == 0` with `not x`." });
+  }
+  if (/len\(\s*(\w+)\s*\)\s*>\s*0/.test(body)) {
+    body = body.replace(/len\(\s*(\w+)\s*\)\s*>\s*0/g, "$1");
+    changes.push({ title: "Non-empty check", detail: "Replaced `len(x) > 0` with `x`." });
+  }
+  if (/range\(\s*0\s*,/.test(body)) {
+    body = body.replace(/range\(\s*0\s*,\s*/g, "range(");
+    changes.push({ title: "range() simplified", detail: "Dropped redundant `0,` in `range(0, n)`." });
+  }
+  // index loop -> comprehension (specific shape)
   const idxLoop = body.match(
-    /([ \t]*)result\s*=\s*\[\]\s*\n[ \t]*for\s+(\w+)\s+in\s+range\(len\((\w+)\)\):\s*\n([ \t]+)if\s+\3\[\2\]\["?(\w+)"?\]\s*==\s*True\s*:\s*\n[ \t]+result\.append\(\3\[\2\]\["?(\w+)"?\]\s*\*\s*(\d+)\)/,
+    /([ \t]*)result\s*=\s*\[\]\s*\n[ \t]*for\s+(\w+)\s+in\s+range\(len\((\w+)\)\):\s*\n([ \t]+)if\s+\3\[\2\]\["?(\w+)"?\]\s*:?\s*\n[ \t]+result\.append\(\3\[\2\]\["?(\w+)"?\]\s*\*\s*(\d+)\)/,
   );
   if (idxLoop) {
     const [, indent, , src, , flag, val, mult] = idxLoop;
     body = body.replace(idxLoop[0], `${indent}result = [item["${val}"] * ${mult} for item in ${src} if item["${flag}"]]`);
-    changes.push({ title: "List comprehension", detail: "Replaced index-based loop with a comprehension — ~3x faster and Pythonic.", highlight: true });
-    changes.push({ title: "Truthy check", detail: "Dropped `== True` per PEP 8." });
-  } else {
-    if (/==\s*True\b/.test(body)) {
-      body = body.replace(/\s*==\s*True\b/g, "");
-      changes.push({ title: "Truthy check", detail: "Dropped `== True` per PEP 8." });
-    }
-    if (/==\s*False\b/.test(body)) {
-      body = body.replace(/(\S+)\s*==\s*False\b/g, "not $1");
-      changes.push({ title: "Truthy check", detail: "Replaced `== False` with `not`." });
-    }
-    if (/for\s+\w+\s+in\s+range\(len\(\w+\)\):/.test(body)) {
-      body = body.replace(/for\s+(\w+)\s+in\s+range\(len\((\w+)\)\):/g, "for $1, item in enumerate($2):");
-      changes.push({ title: "Use enumerate()", detail: "Replaced range(len(x)) with enumerate(x)." });
-    }
+    changes.push({ title: "List comprehension", detail: "Replaced index-based loop with a comprehension — ~3x faster.", highlight: true });
+  } else if (/for\s+\w+\s+in\s+range\(len\(\w+\)\):/.test(body)) {
+    body = body.replace(/for\s+(\w+)\s+in\s+range\(len\((\w+)\)\):/g, "for $1, item in enumerate($2):");
+    changes.push({ title: "Use enumerate()", detail: "Replaced `range(len(x))` with `enumerate(x)`." });
   }
-
-  const accum = body.match(/([ \t]*)total\s*=\s*0\s*\n[ \t]*for\s+(\w+)\s+in\s+(\w+):\s*\n[ \t]+total\s*=\s*total\s*\+\s*\2\s*/);
+  // manual sum accumulator
+  const accum = body.match(/([ \t]*)(\w+)\s*=\s*0\s*\n[ \t]*for\s+(\w+)\s+in\s+(\w+):\s*\n[ \t]+\2\s*=\s*\2\s*\+\s*\3\s*/);
   if (accum) {
-    body = body.replace(accum[0], `${accum[1]}total = sum(${accum[3]})`);
-    changes.push({ title: "Built-in sum()", detail: "Replaced manual accumulator with `sum()` — C-level loop, ~5x faster.", highlight: true });
+    body = body.replace(accum[0], `${accum[1]}${accum[2]} = sum(${accum[4]})`);
+    changes.push({ title: "Built-in sum()", detail: "Replaced manual accumulator with `sum()` — C-level loop.", highlight: true });
   }
-
-  if (/\.format\(/.test(body) || /["'].*%[sd].*["']\s*%/.test(body)) {
-    changes.push({ title: "Use f-strings", detail: "f-strings are faster and more readable." });
+  // string concat in loop hint
+  if (/for\s+\w+\s+in\s+[^\n:]+:\s*\n[ \t]+\w+\s*\+=\s*['"]/.test(body)) {
+    changes.push({ title: "Avoid str += in loop", detail: "Append to a list and `''.join(parts)` after the loop." });
+  }
+  // .keys() iteration
+  if (/for\s+\w+\s+in\s+\w+\.keys\(\)/.test(body)) {
+    body = body.replace(/for\s+(\w+)\s+in\s+(\w+)\.keys\(\)/g, "for $1 in $2");
+    changes.push({ title: "Iterate dict directly", detail: "`for k in d` is equivalent to `for k in d.keys()`." });
+  }
+  // membership in list -> set if literal long
+  if (/\bin\s+\[(?:[^\]]{30,})\]/.test(body)) {
+    changes.push({ title: "Use a set for membership", detail: "Large `x in [...]` is O(n) — convert literal to a `frozenset(...)`." });
+  }
+  // % formatting / .format
+  if (/\.format\(/.test(body) || /["'][^"']*%[sdif][^"']*["']\s*%/.test(body)) {
+    changes.push({ title: "Use f-strings", detail: "f-strings are faster and more readable than `%`/`.format()`." });
+  }
+  // open without with
+  if (/=\s*open\(/.test(body) && !/with\s+open\(/.test(body)) {
+    changes.push({ title: "Use `with open(...)`", detail: "Context managers guarantee the file is closed." });
   }
 
   if (changes.length === 0) {
-    changes.push({ title: "Already idiomatic", detail: "No common antipatterns detected." });
+    changes.push({ title: "Already idiomatic", detail: "No common antipatterns detected — focus on algorithmic complexity." });
   }
 
   const wrapped = wrapPythonMain(body.trim(), changes);
   const importBlock = imports.length ? imports.join("\n") + "\n\n" : "";
   const output = `${buildHeader("PYTHON", changes)}\n\n${importBlock}${wrapped}\n`;
-  const speedup = Math.min(78, 18 + changes.length * 12 + (output.length % 9));
-  return { output, speedup, changes };
+  const speedup = Math.min(78, 18 + changes.length * 9 + (output.length % 9));
+  return { output, speedup, changes, diagnostics };
 }
 
 function wrapPythonMain(body: string, changes: Change[]): string {
