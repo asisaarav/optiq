@@ -3,6 +3,23 @@ import { Nav } from "@/components/Nav";
 import { Workspace } from "@/components/Workspace";
 
 export const Route = createFileRoute("/")({
+  head: () => ({
+    scripts: [
+      {
+        type: "application/ld+json",
+        children: JSON.stringify({
+          "@context": "https://schema.org",
+          "@type": "SoftwareApplication",
+          name: "Optiq",
+          description: "Code optimizer for SQL, Python, and PySpark",
+          applicationCategory: "DeveloperApplication",
+          operatingSystem: "Web",
+          url: "https://code-optimizer.instaluxe.in",
+          offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+        }),
+      },
+    ],
+  }),
   component: Index,
 });
 
@@ -11,6 +28,7 @@ function Index() {
     <div className="min-h-screen bg-background text-foreground selection:bg-primary/30">
       <Nav />
 
+      <main>
       {/* Hero + Workspace */}
       <section className="max-w-7xl mx-auto px-6 pt-20 pb-32">
         <div className="max-w-3xl mb-16" style={{ animation: "fadeIn 0.6s ease-out" }}>
@@ -107,6 +125,8 @@ function Index() {
           ))}
         </div>
       </section>
+
+      </main>
 
       <footer className="border-t border-border py-12 bg-surface-2 text-xs text-muted-foreground">
         <div className="max-w-7xl mx-auto px-6 flex flex-wrap gap-4 justify-between">
