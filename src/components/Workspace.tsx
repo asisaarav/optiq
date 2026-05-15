@@ -787,6 +787,8 @@ function SqlPanel() {
   const [engine, setEngine] = useState<SqlEngine>("POSTGRESQL");
   const [input, setInput] = useState(SQL_SAMPLES.POSTGRESQL);
   const [result, setResult] = useState<Optimization>(() => optimize(SQL_SAMPLES.POSTGRESQL, "POSTGRESQL"));
+  const [runTarget, setRunTarget] = useState<"input" | "output">("input");
+  const [execution, setExecution] = useState<ExecutionResult>({ status: "idle", label: "Ready" });
   const [copied, setCopied] = useState(false);
   const html = useMemo(() => highlight(result.output, "sql"), [result.output]);
   const liveDiagnostics = useMemo(() => validate(input, engine), [input, engine]);
@@ -795,6 +797,17 @@ function SqlPanel() {
     setEngine(e);
     setInput(SQL_SAMPLES[e]);
     setResult(optimize(SQL_SAMPLES[e], e));
+  }
+
+  async function run() {
+    const code = runTarget === "input" ? input : result.output;
+    setExecution({ status: "running", label: "Executing local fixture query…" });
+    try {
+      const ran = await runSqlLocal(code);
+      setExecution(ran);
+    } catch (e: any) {
+      setExecution({ status: "error", label: "Execution failed", error: e?.message ?? String(e) });
+    }
   }
 
   return (
@@ -816,6 +829,15 @@ function SqlPanel() {
           }
           right={
             <>
+              <select aria-label="SQL run target" value={runTarget} onChange={(e) => setRunTarget(e.target.value as any)}
+                className="px-2 py-1 bg-secondary rounded border border-border text-xs font-mono">
+                <option value="input">Run input</option>
+                <option value="output">Run optimized</option>
+              </select>
+              <button onClick={run} disabled={execution.status === "running"}
+                className="text-xs bg-secondary border border-border px-3 py-1 rounded hover:border-primary disabled:opacity-50">
+                {execution.status === "running" ? "Running…" : "▶ Run"}
+              </button>
               <button onClick={() => { navigator.clipboard?.writeText(result.output); setCopied(true); setTimeout(() => setCopied(false), 1200); }}
                 className="text-xs bg-secondary px-3 py-1 rounded border border-border hover:border-muted-foreground transition-colors">
                 {copied ? "Copied" : "Copy"}
@@ -836,6 +858,7 @@ function SqlPanel() {
           </div>
           <CodeOutput html={html} speedup={result.speedup} />
         </div>
+        <ExecutionPanel result={execution} />
       </div>
       <div className="flex flex-col gap-4">
         <ChangesPanel changes={result.changes} />
