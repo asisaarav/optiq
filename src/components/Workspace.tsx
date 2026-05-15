@@ -538,6 +538,29 @@ function Toolbar({
   );
 }
 
+function DiagnosticsBar({ diagnostics }: { diagnostics: Diagnostic[] }) {
+  if (!diagnostics || diagnostics.length === 0) {
+    return (
+      <div className="px-4 py-1.5 text-[11px] font-mono text-emerald-300/80 bg-emerald-500/5 border-b border-border flex items-center gap-2">
+        <span className="size-1.5 rounded-full bg-emerald-400" /> No syntax issues detected
+      </div>
+    );
+  }
+  const errs = diagnostics.filter((d) => d.severity === "error");
+  return (
+    <div className={`px-4 py-1.5 text-[11px] font-mono border-b border-border space-y-0.5 ${errs.length ? "bg-rose-500/10 text-rose-200" : "bg-amber-500/10 text-amber-200"}`}>
+      {diagnostics.slice(0, 4).map((d, i) => (
+        <div key={i} className="flex gap-2">
+          <span className="font-bold uppercase">{d.severity}</span>
+          {d.line !== undefined && <span className="opacity-70">L{d.line}</span>}
+          <span>{d.message}</span>
+        </div>
+      ))}
+      {diagnostics.length > 4 && <div className="opacity-70">+{diagnostics.length - 4} more…</div>}
+    </div>
+  );
+}
+
 function CodeOutput({ html, speedup }: { html: string; speedup?: number }) {
   return (
     <div className="p-6 overflow-auto bg-surface/40 relative h-full">
