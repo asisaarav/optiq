@@ -827,9 +827,18 @@ function optimizeSql(input: string, engine: SqlEngine): Optimization {
       detail: "Unbounded SELECT — cap row count for exploratory queries.",
     });
   }
-  if (changes.length === 0)
-    changes.push({ title: "Already efficient", detail: "Inspect `EXPLAIN` plan." });
-  const speedup = Math.min(72, 14 + changes.length * 9 + (output.length % 11));
+  const realChanged = normalizeForCompare(output) !== normalizeForCompare(input);
+  if (changes.length === 0 || !realChanged) {
+    return {
+      output,
+      speedup: 0,
+      changes: [
+        { title: "No safe rewrite", detail: "Query is already efficient — inspect EXPLAIN for plan-level wins." },
+      ],
+      diagnostics,
+    };
+  }
+  const speedup = Math.min(65, changes.length * 8);
   return { output, speedup, changes, diagnostics };
 }
 
