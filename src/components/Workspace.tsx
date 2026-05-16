@@ -716,7 +716,8 @@ function optimizePySpark(input: string): Optimization {
     : `spark = SparkSession.builder.appName("optiq").getOrCreate()\n\n`;
 
   const output = `${buildHeader("PYSPARK", changes)}\n\n${importBlock}${sparkInit}${body}\n`;
-  const speedup = Math.min(82, 22 + changes.length * 9 + (output.length % 9));
+  const realChanged = normalizeForCompare(output) !== normalizeForCompare(input);
+  const speedup = realChanged ? Math.min(75, changes.length * 10) : 0;
   return { output, speedup, changes, diagnostics };
 }
 
