@@ -311,7 +311,8 @@ function validateBrackets(code: string, lang: "sql" | "py"): Diagnostic[] {
 function validateSql(code: string): Diagnostic[] {
   const diags = validateBrackets(code, "sql");
   const trimmed = code.trim();
-  if (trimmed && !/;\s*$/.test(trimmed))
+  if (!trimmed) return diags;
+  if (!/;\s*$/.test(trimmed))
     diags.push({ severity: "warn", message: "Missing trailing semicolon" });
   if (/\bFORM\b/i.test(code))
     diags.push({ severity: "error", message: "Typo: 'FORM' — did you mean 'FROM'?" });
@@ -319,16 +320,81 @@ function validateSql(code: string): Diagnostic[] {
     diags.push({ severity: "error", message: "Typo: 'SELCT' — did you mean 'SELECT'?" });
   if (/\bWEHRE\b/i.test(code))
     diags.push({ severity: "error", message: "Typo: 'WEHRE' — did you mean 'WHERE'?" });
-  if (/\bSELECT\b/i.test(code) && !/\bFROM\b/i.test(code) && !/\bSELECT\s+\d/i.test(code)) {
+
+  // Strip strings & comments to scan keywords cleanly
+  const stripped = code
+    .replace(/--.*$/gm, "")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/'(?:[^'\\]|\\.)*'/g, "''");
+
+  // Dangling clause keywords with nothing after them
+  const danglers: { re: RegExp; name: string }[] = [
+    { re: /\bWHERE\b\s*(?:;|$)/im, name: "WHERE" },
+    { re: /\bHAVING\b\s*(?:;|$)/im, name: "HAVING" },
+    { re: /\bGROUP\s+BY\b\s*(?:;|$)/im, name: "GROUP BY" },
+    { re: /\bORDER\s+BY\b\s*(?:;|$)/im, name: "ORDER BY" },
+    { re: /\bFROM\b\s*(?:;|$)/im, name: "FROM" },
+    { re: /\bON\b\s*(?:;|$)/im, name: "ON" },
+    { re: /\bSET\b\s*(?:;|$)/im, name: "SET" },
+    { re: /\bJOIN\b\s*(?:;|$)/im, name: "JOIN" },
+  ];
+  for (const d of danglers) {
+    if (d.re.test(stripped))
+      diags.push({ severity: "error", message: `Dangling '${d.name}' — no expression follows` });
+  }
+
+  // HAVING usage rules
+  if (/\bHAVING\b/i.test(stripped)) {
+    if (!/\bGROUP\s+BY\b/i.test(stripped))
+      diags.push({
+        severity: "error",
+        message: "HAVING used without GROUP BY — use WHERE for non-aggregate filters",
+      });
+    if (!/\b(SUM|AVG|COUNT|MIN|MAX)\s*\(/i.test(stripped))
+      diags.push({
+        severity: "warn",
+        message: "HAVING usually filters aggregates — none detected in query",
+      });
+  }
+
+  // Stranded operators / commas
+  if (/,\s*(FROM|WHERE|GROUP|ORDER|HAVING|;|$)/im.test(stripped))
+    diags.push({ severity: "error", message: "Trailing comma before clause" });
+  if (/\b(AND|OR)\b\s*(?:;|$)/im.test(stripped))
+    diags.push({ severity: "error", message: "Boolean operator with no right-hand expression" });
+  if (/(=|<>|!=|<=|>=|<|>)\s*(?:;|$)/m.test(stripped))
+    diags.push({ severity: "error", message: "Comparison operator with no right-hand value" });
+
+  if (/\bSELECT\b/i.test(stripped) && !/\bFROM\b/i.test(stripped) && !/\bSELECT\s+\d/i.test(stripped)) {
     diags.push({ severity: "warn", message: "SELECT without FROM" });
   }
-  if (
-    /\bGROUP\s+BY\b/i.test(code) &&
-    /\bSELECT\b[\s\S]*?(\bSUM\b|\bAVG\b|\bCOUNT\b|\bMIN\b|\bMAX\b)/i.test(code) === false
-  ) {
-    // soft hint
+
+  // Aggregate without GROUP BY when other plain columns are projected
+  const agg = /\b(SUM|AVG|COUNT|MIN|MAX)\s*\(/i.test(stripped);
+  const selMatch = stripped.match(/SELECT\s+([\s\S]*?)\bFROM\b/i);
+  if (agg && selMatch && !/\bGROUP\s+BY\b/i.test(stripped)) {
+    const cols = selMatch[1].split(",").map((c) => c.trim());
+    const hasPlainCol = cols.some(
+      (c) => c && !/\b(SUM|AVG|COUNT|MIN|MAX)\s*\(/i.test(c) && !/^\*$/.test(c) && !/^\d/.test(c),
+    );
+    if (hasPlainCol)
+      diags.push({
+        severity: "error",
+        message: "Aggregate mixed with non-aggregate column without GROUP BY",
+      });
   }
+
   return diags;
+}
+
+function normalizeForCompare(s: string) {
+  return s
+    .replace(/--.*$/gm, "")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*#.*$/gm, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
 }
 
 function validatePython(code: string): Diagnostic[] {
@@ -494,7 +560,8 @@ function optimizePython(input: string): Optimization {
   const wrapped = wrapPythonMain(body.trim(), changes);
   const importBlock = imports.length ? imports.join("\n") + "\n\n" : "";
   const output = `${buildHeader("PYTHON", changes)}\n\n${importBlock}${wrapped}\n`;
-  const speedup = Math.min(78, 18 + changes.length * 9 + (output.length % 9));
+  const realChanged = normalizeForCompare(output) !== normalizeForCompare(input);
+  const speedup = realChanged ? Math.min(70, changes.length * 9) : 0;
   return { output, speedup, changes, diagnostics };
 }
 
@@ -649,7 +716,8 @@ function optimizePySpark(input: string): Optimization {
     : `spark = SparkSession.builder.appName("optiq").getOrCreate()\n\n`;
 
   const output = `${buildHeader("PYSPARK", changes)}\n\n${importBlock}${sparkInit}${body}\n`;
-  const speedup = Math.min(82, 22 + changes.length * 9 + (output.length % 9));
+  const realChanged = normalizeForCompare(output) !== normalizeForCompare(input);
+  const speedup = realChanged ? Math.min(75, changes.length * 10) : 0;
   return { output, speedup, changes, diagnostics };
 }
 
@@ -759,9 +827,18 @@ function optimizeSql(input: string, engine: SqlEngine): Optimization {
       detail: "Unbounded SELECT — cap row count for exploratory queries.",
     });
   }
-  if (changes.length === 0)
-    changes.push({ title: "Already efficient", detail: "Inspect `EXPLAIN` plan." });
-  const speedup = Math.min(72, 14 + changes.length * 9 + (output.length % 11));
+  const realChanged = normalizeForCompare(output) !== normalizeForCompare(input);
+  if (changes.length === 0 || !realChanged) {
+    return {
+      output,
+      speedup: 0,
+      changes: [
+        { title: "No safe rewrite", detail: "Query is already efficient — inspect EXPLAIN for plan-level wins." },
+      ],
+      diagnostics,
+    };
+  }
+  const speedup = Math.min(65, changes.length * 8);
   return { output, speedup, changes, diagnostics };
 }
 
@@ -900,21 +977,172 @@ function normalizeSqlForRunner(query: string) {
   return q;
 }
 
-async function runSqlLocal(query: string): Promise<ExecutionResult> {
+// ---- Intelligent fixture builder: parses tables/aliases/predicates from query ----
+
+type AlSqlDb = { exec: (sql: string) => unknown; tables: Record<string, { data: unknown[] }> };
+type AlSql = { Database: new (name: string) => AlSqlDb };
+
+function literalValue(raw: string): unknown {
+  if (/^'(.*)'$/.test(raw)) return raw.slice(1, -1);
+  if (/^(true|false)$/i.test(raw)) return raw.toLowerCase() === "true";
+  if (/^-?\d+(?:\.\d+)?$/.test(raw)) return Number(raw);
+  return raw;
+}
+
+function inferValueFor(col: string, i: number, sample?: unknown): unknown {
+  if (col === "id") return i + 1;
+  if (col.endsWith("_id")) return randInt(1, 10);
+  if (typeof sample === "number") return randInt(1, 1000);
+  if (typeof sample === "boolean") return Math.random() > 0.5;
+  if (typeof sample === "string" && /^\d{4}-\d{2}-\d{2}/.test(sample)) {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() - i);
+    return sample.length > 10 ? d.toISOString() : d.toISOString().slice(0, 10);
+  }
+  if (col.includes("name")) return `${rand(FIRST)} ${rand(LAST)}`;
+  if (col === "email") return `user${i}@example.com`;
+  if (col === "status") return rand(["active", "inactive", "pending"]);
+  if (col === "country") return rand(COUNTRIES);
+  if (col === "city") return rand(CITIES);
+  if (col.includes("date") || col.endsWith("_at")) {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() - i);
+    return d.toISOString().slice(0, 10);
+  }
+  if (/total|amount|price|revenue|cost|qty|quantity/i.test(col))
+    return +(Math.random() * 5000 + 10).toFixed(2);
+  if (typeof sample === "string") return `${col}_${i}`;
+  return `${col}_${i}`;
+}
+
+function buildSmartFixtures(query: string): Record<string, Record<string, unknown>[]> {
+  const aliasToTable = new Map<string, string>();
+  const tables = new Set<string>();
+  const fromRe = /\b(?:FROM|JOIN)\s+([a-zA-Z_]\w*)(?:\s+(?:AS\s+)?([a-zA-Z_]\w*))?/gi;
+  let m: RegExpExecArray | null;
+  while ((m = fromRe.exec(query))) {
+    const t = m[1].toLowerCase();
+    const a = (m[2] || t).toLowerCase();
+    tables.add(t);
+    aliasToTable.set(a, t);
+    aliasToTable.set(t, t);
+  }
+  if (!tables.size) return SQL_FIXTURES;
+
+  const tableCols: Record<string, Set<string>> = {};
+  const colRe = /\b([a-zA-Z_]\w*)\.([a-zA-Z_]\w*)\b/g;
+  while ((m = colRe.exec(query))) {
+    const t = aliasToTable.get(m[1].toLowerCase());
+    if (t) (tableCols[t] ||= new Set()).add(m[2].toLowerCase());
+  }
+
+  const tablePreds: Record<string, { col: string; op: string; val: unknown }[]> = {};
+  const predRe =
+    /(?:\b([a-zA-Z_]\w*)\.)?([a-zA-Z_]\w*)\s*(>=|<=|<>|!=|=|>|<|LIKE)\s*('[^']*'|-?\d+(?:\.\d+)?|TRUE|FALSE)/gi;
+  while ((m = predRe.exec(query))) {
+    const alias = (m[1] || "").toLowerCase();
+    const col = m[2].toLowerCase();
+    if (/^(select|from|join|where|on|and|or|group|order|by|having|as|limit|offset|in|not|is|null|true|false)$/.test(col))
+      continue;
+    const op = m[3].toUpperCase();
+    const val = literalValue(m[4]);
+    let table = aliasToTable.get(alias);
+    if (!table) {
+      // attribute to first table that mentioned this column
+      table = Object.entries(tableCols).find(([, s]) => s.has(col))?.[0] ?? [...tables][0];
+    }
+    if (!table) continue;
+    (tablePreds[table] ||= []).push({ col, op, val });
+    (tableCols[table] ||= new Set()).add(col);
+  }
+
+  const fixtures: Record<string, Record<string, unknown>[]> = {};
+  for (const t of tables) {
+    const baseRows = SQL_FIXTURES[t] ?? [];
+    const cols = tableCols[t] ?? new Set<string>();
+    baseRows.forEach((r) => Object.keys(r).forEach((k) => cols.add(k)));
+    if (!cols.size) cols.add("id");
+    const preds = tablePreds[t] ?? [];
+    const rows: Record<string, unknown>[] = baseRows.map((r) => ({ ...r }));
+    for (let i = 0; i < 40; i++) {
+      const r: Record<string, unknown> = {};
+      for (const c of cols) {
+        const sample = baseRows[0]?.[c];
+        r[c] = inferValueFor(c, i + rows.length, sample);
+      }
+      // Make ~80% of rows satisfy each predicate so query returns data
+      for (const p of preds) {
+        if (Math.random() > 0.2) {
+          if (p.op === "=") r[p.col] = p.val;
+          else if (p.op === ">" || p.op === ">=")
+            r[p.col] = typeof p.val === "number" ? (p.val as number) + i + 1 : p.val;
+          else if (p.op === "<" || p.op === "<=")
+            r[p.col] = typeof p.val === "number" ? Math.max(0, (p.val as number) - i - 1) : p.val;
+          else if (p.op === "LIKE" && typeof p.val === "string")
+            r[p.col] = p.val.replace(/%/g, `x${i}`);
+        }
+      }
+      rows.push(r);
+    }
+    fixtures[t] = rows;
+  }
+
+  // Foreign-key linking heuristic: child.user_id -> parent users.id
+  for (const [t, rows] of Object.entries(fixtures)) {
+    for (const r of rows) {
+      for (const k of Object.keys(r)) {
+        if (k.endsWith("_id") && k !== "id") {
+          const parent = k.slice(0, -3) + "s";
+          const parentRows = fixtures[parent] ?? SQL_FIXTURES[parent];
+          if (parentRows && parentRows.length) {
+            const ids = parentRows.map((p) => p.id).filter((x) => x !== undefined);
+            if (ids.length) r[k] = ids[randInt(0, ids.length - 1)];
+          }
+        }
+      }
+      void t;
+    }
+  }
+
+  return { ...SQL_FIXTURES, ...fixtures };
+}
+
+async function runSqlLocal(
+  query: string,
+  customFixtures?: Record<string, Record<string, unknown>[]>,
+): Promise<ExecutionResult> {
   const started = performance.now();
   const alasqlModule = await import("alasql");
-  const alasql = (alasqlModule as { default?: unknown }).default ?? alasqlModule;
-  const db = new alasql.Database("optiq_live");
-  Object.entries(SQL_FIXTURES).forEach(([table, rows]) => {
-    db.exec(`CREATE TABLE ${table}`);
-    db.tables[table].data = rows.map((row) => ({ ...row }));
+  const alasql = ((alasqlModule as { default?: unknown }).default ?? alasqlModule) as AlSql;
+  const db = new alasql.Database(`optiq_${Date.now()}`);
+  const fixtures =
+    customFixtures && Object.keys(customFixtures).length
+      ? customFixtures
+      : buildSmartFixtures(query);
+  Object.entries(fixtures).forEach(([table, rows]) => {
+    try {
+      db.exec(`CREATE TABLE ${table}`);
+      db.tables[table].data = rows.map((row) => ({ ...row }));
+    } catch {
+      /* ignore duplicate */
+    }
   });
   const normalized = normalizeSqlForRunner(query);
-  const result = db.exec(normalized);
-  const rows = Array.isArray(result) ? result.slice(0, 100) : [{ result }];
+  let result: unknown;
+  try {
+    result = db.exec(normalized);
+  } catch (e) {
+    return {
+      status: "error",
+      label: "SQL runtime error",
+      error: e instanceof Error ? e.message : String(e),
+      elapsedMs: performance.now() - started,
+    };
+  }
+  const rows = Array.isArray(result) ? (result as Record<string, unknown>[]).slice(0, 100) : [{ result }];
   return {
     status: "success",
-    label: `${rows.length} row${rows.length === 1 ? "" : "s"} returned`,
+    label: `${rows.length} row${rows.length === 1 ? "" : "s"} returned · ${Object.keys(fixtures).length} tables seeded`,
     rows,
     output: JSON.stringify(rows, null, 2),
     elapsedMs: performance.now() - started,
@@ -1166,6 +1394,37 @@ function TipsPanel({ engineKey }: { engineKey: TipsKey }) {
 }
 
 // SQL panel
+type TestSpec = {
+  name?: string;
+  minRows?: number;
+  maxRows?: number;
+  exactRows?: number;
+  contains?: string;
+  notContains?: string;
+};
+type TestResult = { name: string; passed: boolean; reason?: string };
+
+function runTests(specs: TestSpec[], exec: ExecutionResult): TestResult[] {
+  return specs.map((spec, i) => {
+    const name = spec.name || `test_${i + 1}`;
+    if (exec.status !== "success")
+      return { name, passed: false, reason: exec.error || "Query did not execute" };
+    const n = exec.rows?.length ?? 0;
+    const out = exec.output ?? "";
+    if (spec.exactRows !== undefined && n !== spec.exactRows)
+      return { name, passed: false, reason: `expected exactly ${spec.exactRows} rows, got ${n}` };
+    if (spec.minRows !== undefined && n < spec.minRows)
+      return { name, passed: false, reason: `expected ≥ ${spec.minRows} rows, got ${n}` };
+    if (spec.maxRows !== undefined && n > spec.maxRows)
+      return { name, passed: false, reason: `expected ≤ ${spec.maxRows} rows, got ${n}` };
+    if (spec.contains && !out.includes(spec.contains))
+      return { name, passed: false, reason: `output missing "${spec.contains}"` };
+    if (spec.notContains && out.includes(spec.notContains))
+      return { name, passed: false, reason: `output contains forbidden "${spec.notContains}"` };
+    return { name, passed: true };
+  });
+}
+
 function SqlPanel() {
   const [engine, setEngine] = useState<SqlEngine>("POSTGRESQL");
   const [input, setInput] = useState(SQL_SAMPLES.POSTGRESQL);
@@ -1175,6 +1434,14 @@ function SqlPanel() {
   const [runTarget, setRunTarget] = useState<"input" | "output">("input");
   const [execution, setExecution] = useState<ExecutionResult>({ status: "idle", label: "Ready" });
   const [copied, setCopied] = useState(false);
+  const [showSource, setShowSource] = useState(false);
+  const [showTests, setShowTests] = useState(false);
+  const [fixturesText, setFixturesText] = useState("");
+  const [fixturesError, setFixturesError] = useState<string | null>(null);
+  const [testsText, setTestsText] = useState(
+    `[\n  { "name": "returns rows", "minRows": 1 },\n  { "name": "bounded", "maxRows": 100 }\n]`,
+  );
+  const [testResults, setTestResults] = useState<TestResult[] | null>(null);
   const html = useMemo(() => highlight(result.output, "sql"), [result.output]);
   const liveDiagnostics = useMemo(() => validate(input, engine), [input, engine]);
 
@@ -1184,12 +1451,31 @@ function SqlPanel() {
     setResult(optimize(SQL_SAMPLES[e], e));
   }
 
-  async function run() {
-    const code = runTarget === "input" ? input : result.output;
-    setExecution({ status: "running", label: "Executing local fixture query…" });
+  function parseFixtures(): Record<string, Record<string, unknown>[]> | undefined {
+    if (!fixturesText.trim()) return undefined;
     try {
-      const ran = await runSqlLocal(code);
+      const parsed = JSON.parse(fixturesText);
+      setFixturesError(null);
+      return parsed;
+    } catch (e) {
+      setFixturesError(e instanceof Error ? e.message : "Invalid JSON");
+      return undefined;
+    }
+  }
+
+  async function run(specs?: TestSpec[]) {
+    const code = runTarget === "input" ? input : result.output;
+    setExecution({ status: "running", label: "Executing query…" });
+    setTestResults(null);
+    try {
+      const fixtures = parseFixtures();
+      if (fixturesText.trim() && !fixtures) {
+        setExecution({ status: "error", label: "Bad fixtures JSON", error: fixturesError ?? "" });
+        return;
+      }
+      const ran = await runSqlLocal(code, fixtures);
       setExecution(ran);
+      if (specs && specs.length) setTestResults(runTests(specs, ran));
     } catch (e: unknown) {
       setExecution({
         status: "error",
@@ -1197,6 +1483,20 @@ function SqlPanel() {
         error: e instanceof Error ? e.message : String(e),
       });
     }
+  }
+
+  async function runWithTests() {
+    let specs: TestSpec[] = [];
+    try {
+      const parsed = JSON.parse(testsText);
+      specs = Array.isArray(parsed) ? parsed : [parsed];
+    } catch (e) {
+      setTestResults([
+        { name: "spec parse", passed: false, reason: e instanceof Error ? e.message : "bad JSON" },
+      ]);
+      return;
+    }
+    await run(specs);
   }
 
   return (
@@ -1222,6 +1522,20 @@ function SqlPanel() {
           }
           right={
             <>
+              <button
+                onClick={() => setShowSource((v) => !v)}
+                className={`text-xs px-2 py-1 rounded border ${showSource ? "border-primary text-primary" : "border-border text-muted-foreground hover:text-foreground"}`}
+                title="Provide custom schema / sample data"
+              >
+                {showSource ? "− Source" : "+ Source"}
+              </button>
+              <button
+                onClick={() => setShowTests((v) => !v)}
+                className={`text-xs px-2 py-1 rounded border ${showTests ? "border-primary text-primary" : "border-border text-muted-foreground hover:text-foreground"}`}
+                title="Define custom test cases"
+              >
+                {showTests ? "− Tests" : "+ Tests"}
+              </button>
               <select
                 aria-label="SQL run target"
                 value={runTarget}
@@ -1232,7 +1546,7 @@ function SqlPanel() {
                 <option value="output">Run optimized</option>
               </select>
               <button
-                onClick={run}
+                onClick={() => run()}
                 disabled={execution.status === "running"}
                 className="text-xs bg-secondary border border-border px-3 py-1 rounded hover:border-primary disabled:opacity-50"
               >
@@ -1258,6 +1572,78 @@ function SqlPanel() {
           }
         />
         <DiagnosticsBar diagnostics={liveDiagnostics} />
+
+        {showSource && (
+          <div className="px-4 py-3 border-b border-border bg-surface-2/40 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                Source data — JSON {`{ "table": [ {row}, … ] }`} (leave empty for auto-generated)
+              </div>
+              <button
+                onClick={() =>
+                  setFixturesText(
+                    JSON.stringify(buildSmartFixtures(input), null, 2),
+                  )
+                }
+                className="text-[10px] px-2 py-0.5 rounded border border-border text-muted-foreground hover:text-foreground"
+              >
+                Auto-fill from query
+              </button>
+            </div>
+            <textarea
+              value={fixturesText}
+              onChange={(e) => setFixturesText(e.target.value)}
+              spellCheck={false}
+              placeholder='{"users":[{"id":1,"name":"Ada","status":"active"}],"orders":[...]}'
+              className="w-full h-32 bg-secondary/50 border border-border rounded p-2 font-mono text-[11px] outline-none focus:border-primary"
+            />
+            {fixturesError && (
+              <div className="text-[11px] text-rose-300 font-mono">⚠ {fixturesError}</div>
+            )}
+          </div>
+        )}
+
+        {showTests && (
+          <div className="px-4 py-3 border-b border-border bg-surface-2/40 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                Test cases — JSON array · supports{" "}
+                <code className="text-primary">minRows / maxRows / exactRows / contains / notContains</code>
+              </div>
+              <button
+                onClick={runWithTests}
+                disabled={execution.status === "running"}
+                className="text-[10px] px-2 py-0.5 rounded bg-primary text-primary-foreground font-bold disabled:opacity-50"
+              >
+                ▶ Run + Test
+              </button>
+            </div>
+            <textarea
+              value={testsText}
+              onChange={(e) => setTestsText(e.target.value)}
+              spellCheck={false}
+              className="w-full h-28 bg-secondary/50 border border-border rounded p-2 font-mono text-[11px] outline-none focus:border-primary"
+            />
+            {testResults && (
+              <div className="space-y-1 pt-1 border-t border-border">
+                {testResults.map((t, i) => (
+                  <div
+                    key={i}
+                    className={`text-[11px] font-mono flex gap-2 ${t.passed ? "text-emerald-300" : "text-rose-300"}`}
+                  >
+                    <span>{t.passed ? "✓" : "✗"}</span>
+                    <span className="font-bold">{t.name}</span>
+                    {t.reason && <span className="opacity-80">— {t.reason}</span>}
+                  </div>
+                ))}
+                <div className="text-[10px] text-muted-foreground pt-1">
+                  {testResults.filter((t) => t.passed).length}/{testResults.length} passed
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="grid md:grid-cols-2 h-[480px] font-mono text-sm leading-relaxed overflow-hidden">
           <div className="p-6 border-r border-border overflow-auto bg-surface-2/40">
             <div className="text-muted-foreground mb-3 text-[10px] uppercase tracking-widest">
@@ -1281,6 +1667,7 @@ function SqlPanel() {
     </div>
   );
 }
+
 
 // Python panel with Pyodide runner
 function PythonPanel() {
