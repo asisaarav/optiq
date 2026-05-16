@@ -1394,6 +1394,37 @@ function TipsPanel({ engineKey }: { engineKey: TipsKey }) {
 }
 
 // SQL panel
+type TestSpec = {
+  name?: string;
+  minRows?: number;
+  maxRows?: number;
+  exactRows?: number;
+  contains?: string;
+  notContains?: string;
+};
+type TestResult = { name: string; passed: boolean; reason?: string };
+
+function runTests(specs: TestSpec[], exec: ExecutionResult): TestResult[] {
+  return specs.map((spec, i) => {
+    const name = spec.name || `test_${i + 1}`;
+    if (exec.status !== "success")
+      return { name, passed: false, reason: exec.error || "Query did not execute" };
+    const n = exec.rows?.length ?? 0;
+    const out = exec.output ?? "";
+    if (spec.exactRows !== undefined && n !== spec.exactRows)
+      return { name, passed: false, reason: `expected exactly ${spec.exactRows} rows, got ${n}` };
+    if (spec.minRows !== undefined && n < spec.minRows)
+      return { name, passed: false, reason: `expected ≥ ${spec.minRows} rows, got ${n}` };
+    if (spec.maxRows !== undefined && n > spec.maxRows)
+      return { name, passed: false, reason: `expected ≤ ${spec.maxRows} rows, got ${n}` };
+    if (spec.contains && !out.includes(spec.contains))
+      return { name, passed: false, reason: `output missing "${spec.contains}"` };
+    if (spec.notContains && out.includes(spec.notContains))
+      return { name, passed: false, reason: `output contains forbidden "${spec.notContains}"` };
+    return { name, passed: true };
+  });
+}
+
 function SqlPanel() {
   const [engine, setEngine] = useState<SqlEngine>("POSTGRESQL");
   const [input, setInput] = useState(SQL_SAMPLES.POSTGRESQL);
@@ -1403,6 +1434,14 @@ function SqlPanel() {
   const [runTarget, setRunTarget] = useState<"input" | "output">("input");
   const [execution, setExecution] = useState<ExecutionResult>({ status: "idle", label: "Ready" });
   const [copied, setCopied] = useState(false);
+  const [showSource, setShowSource] = useState(false);
+  const [showTests, setShowTests] = useState(false);
+  const [fixturesText, setFixturesText] = useState("");
+  const [fixturesError, setFixturesError] = useState<string | null>(null);
+  const [testsText, setTestsText] = useState(
+    `[\n  { "name": "returns rows", "minRows": 1 },\n  { "name": "bounded", "maxRows": 100 }\n]`,
+  );
+  const [testResults, setTestResults] = useState<TestResult[] | null>(null);
   const html = useMemo(() => highlight(result.output, "sql"), [result.output]);
   const liveDiagnostics = useMemo(() => validate(input, engine), [input, engine]);
 
@@ -1412,12 +1451,31 @@ function SqlPanel() {
     setResult(optimize(SQL_SAMPLES[e], e));
   }
 
-  async function run() {
-    const code = runTarget === "input" ? input : result.output;
-    setExecution({ status: "running", label: "Executing local fixture query…" });
+  function parseFixtures(): Record<string, Record<string, unknown>[]> | undefined {
+    if (!fixturesText.trim()) return undefined;
     try {
-      const ran = await runSqlLocal(code);
+      const parsed = JSON.parse(fixturesText);
+      setFixturesError(null);
+      return parsed;
+    } catch (e) {
+      setFixturesError(e instanceof Error ? e.message : "Invalid JSON");
+      return undefined;
+    }
+  }
+
+  async function run(specs?: TestSpec[]) {
+    const code = runTarget === "input" ? input : result.output;
+    setExecution({ status: "running", label: "Executing query…" });
+    setTestResults(null);
+    try {
+      const fixtures = parseFixtures();
+      if (fixturesText.trim() && !fixtures) {
+        setExecution({ status: "error", label: "Bad fixtures JSON", error: fixturesError ?? "" });
+        return;
+      }
+      const ran = await runSqlLocal(code, fixtures);
       setExecution(ran);
+      if (specs && specs.length) setTestResults(runTests(specs, ran));
     } catch (e: unknown) {
       setExecution({
         status: "error",
@@ -1425,6 +1483,20 @@ function SqlPanel() {
         error: e instanceof Error ? e.message : String(e),
       });
     }
+  }
+
+  async function runWithTests() {
+    let specs: TestSpec[] = [];
+    try {
+      const parsed = JSON.parse(testsText);
+      specs = Array.isArray(parsed) ? parsed : [parsed];
+    } catch (e) {
+      setTestResults([
+        { name: "spec parse", passed: false, reason: e instanceof Error ? e.message : "bad JSON" },
+      ]);
+      return;
+    }
+    await run(specs);
   }
 
   return (
@@ -1450,6 +1522,20 @@ function SqlPanel() {
           }
           right={
             <>
+              <button
+                onClick={() => setShowSource((v) => !v)}
+                className={`text-xs px-2 py-1 rounded border ${showSource ? "border-primary text-primary" : "border-border text-muted-foreground hover:text-foreground"}`}
+                title="Provide custom schema / sample data"
+              >
+                {showSource ? "− Source" : "+ Source"}
+              </button>
+              <button
+                onClick={() => setShowTests((v) => !v)}
+                className={`text-xs px-2 py-1 rounded border ${showTests ? "border-primary text-primary" : "border-border text-muted-foreground hover:text-foreground"}`}
+                title="Define custom test cases"
+              >
+                {showTests ? "− Tests" : "+ Tests"}
+              </button>
               <select
                 aria-label="SQL run target"
                 value={runTarget}
@@ -1460,7 +1546,7 @@ function SqlPanel() {
                 <option value="output">Run optimized</option>
               </select>
               <button
-                onClick={run}
+                onClick={() => run()}
                 disabled={execution.status === "running"}
                 className="text-xs bg-secondary border border-border px-3 py-1 rounded hover:border-primary disabled:opacity-50"
               >
@@ -1486,6 +1572,78 @@ function SqlPanel() {
           }
         />
         <DiagnosticsBar diagnostics={liveDiagnostics} />
+
+        {showSource && (
+          <div className="px-4 py-3 border-b border-border bg-surface-2/40 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                Source data — JSON {`{ "table": [ {row}, … ] }`} (leave empty for auto-generated)
+              </div>
+              <button
+                onClick={() =>
+                  setFixturesText(
+                    JSON.stringify(buildSmartFixtures(input), null, 2),
+                  )
+                }
+                className="text-[10px] px-2 py-0.5 rounded border border-border text-muted-foreground hover:text-foreground"
+              >
+                Auto-fill from query
+              </button>
+            </div>
+            <textarea
+              value={fixturesText}
+              onChange={(e) => setFixturesText(e.target.value)}
+              spellCheck={false}
+              placeholder='{"users":[{"id":1,"name":"Ada","status":"active"}],"orders":[...]}'
+              className="w-full h-32 bg-secondary/50 border border-border rounded p-2 font-mono text-[11px] outline-none focus:border-primary"
+            />
+            {fixturesError && (
+              <div className="text-[11px] text-rose-300 font-mono">⚠ {fixturesError}</div>
+            )}
+          </div>
+        )}
+
+        {showTests && (
+          <div className="px-4 py-3 border-b border-border bg-surface-2/40 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                Test cases — JSON array · supports{" "}
+                <code className="text-primary">minRows / maxRows / exactRows / contains / notContains</code>
+              </div>
+              <button
+                onClick={runWithTests}
+                disabled={execution.status === "running"}
+                className="text-[10px] px-2 py-0.5 rounded bg-primary text-primary-foreground font-bold disabled:opacity-50"
+              >
+                ▶ Run + Test
+              </button>
+            </div>
+            <textarea
+              value={testsText}
+              onChange={(e) => setTestsText(e.target.value)}
+              spellCheck={false}
+              className="w-full h-28 bg-secondary/50 border border-border rounded p-2 font-mono text-[11px] outline-none focus:border-primary"
+            />
+            {testResults && (
+              <div className="space-y-1 pt-1 border-t border-border">
+                {testResults.map((t, i) => (
+                  <div
+                    key={i}
+                    className={`text-[11px] font-mono flex gap-2 ${t.passed ? "text-emerald-300" : "text-rose-300"}`}
+                  >
+                    <span>{t.passed ? "✓" : "✗"}</span>
+                    <span className="font-bold">{t.name}</span>
+                    {t.reason && <span className="opacity-80">— {t.reason}</span>}
+                  </div>
+                ))}
+                <div className="text-[10px] text-muted-foreground pt-1">
+                  {testResults.filter((t) => t.passed).length}/{testResults.length} passed
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="grid md:grid-cols-2 h-[480px] font-mono text-sm leading-relaxed overflow-hidden">
           <div className="p-6 border-r border-border overflow-auto bg-surface-2/40">
             <div className="text-muted-foreground mb-3 text-[10px] uppercase tracking-widest">
@@ -1509,6 +1667,7 @@ function SqlPanel() {
     </div>
   );
 }
+
 
 // Python panel with Pyodide runner
 function PythonPanel() {
