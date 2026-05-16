@@ -560,7 +560,8 @@ function optimizePython(input: string): Optimization {
   const wrapped = wrapPythonMain(body.trim(), changes);
   const importBlock = imports.length ? imports.join("\n") + "\n\n" : "";
   const output = `${buildHeader("PYTHON", changes)}\n\n${importBlock}${wrapped}\n`;
-  const speedup = Math.min(78, 18 + changes.length * 9 + (output.length % 9));
+  const realChanged = normalizeForCompare(output) !== normalizeForCompare(input);
+  const speedup = realChanged ? Math.min(70, changes.length * 9) : 0;
   return { output, speedup, changes, diagnostics };
 }
 
