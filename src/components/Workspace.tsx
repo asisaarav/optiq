@@ -311,7 +311,8 @@ function validateBrackets(code: string, lang: "sql" | "py"): Diagnostic[] {
 function validateSql(code: string): Diagnostic[] {
   const diags = validateBrackets(code, "sql");
   const trimmed = code.trim();
-  if (trimmed && !/;\s*$/.test(trimmed))
+  if (!trimmed) return diags;
+  if (!/;\s*$/.test(trimmed))
     diags.push({ severity: "warn", message: "Missing trailing semicolon" });
   if (/\bFORM\b/i.test(code))
     diags.push({ severity: "error", message: "Typo: 'FORM' — did you mean 'FROM'?" });
@@ -319,16 +320,81 @@ function validateSql(code: string): Diagnostic[] {
     diags.push({ severity: "error", message: "Typo: 'SELCT' — did you mean 'SELECT'?" });
   if (/\bWEHRE\b/i.test(code))
     diags.push({ severity: "error", message: "Typo: 'WEHRE' — did you mean 'WHERE'?" });
-  if (/\bSELECT\b/i.test(code) && !/\bFROM\b/i.test(code) && !/\bSELECT\s+\d/i.test(code)) {
+
+  // Strip strings & comments to scan keywords cleanly
+  const stripped = code
+    .replace(/--.*$/gm, "")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/'(?:[^'\\]|\\.)*'/g, "''");
+
+  // Dangling clause keywords with nothing after them
+  const danglers: { re: RegExp; name: string }[] = [
+    { re: /\bWHERE\b\s*(?:;|$)/im, name: "WHERE" },
+    { re: /\bHAVING\b\s*(?:;|$)/im, name: "HAVING" },
+    { re: /\bGROUP\s+BY\b\s*(?:;|$)/im, name: "GROUP BY" },
+    { re: /\bORDER\s+BY\b\s*(?:;|$)/im, name: "ORDER BY" },
+    { re: /\bFROM\b\s*(?:;|$)/im, name: "FROM" },
+    { re: /\bON\b\s*(?:;|$)/im, name: "ON" },
+    { re: /\bSET\b\s*(?:;|$)/im, name: "SET" },
+    { re: /\bJOIN\b\s*(?:;|$)/im, name: "JOIN" },
+  ];
+  for (const d of danglers) {
+    if (d.re.test(stripped))
+      diags.push({ severity: "error", message: `Dangling '${d.name}' — no expression follows` });
+  }
+
+  // HAVING usage rules
+  if (/\bHAVING\b/i.test(stripped)) {
+    if (!/\bGROUP\s+BY\b/i.test(stripped))
+      diags.push({
+        severity: "error",
+        message: "HAVING used without GROUP BY — use WHERE for non-aggregate filters",
+      });
+    if (!/\b(SUM|AVG|COUNT|MIN|MAX)\s*\(/i.test(stripped))
+      diags.push({
+        severity: "warn",
+        message: "HAVING usually filters aggregates — none detected in query",
+      });
+  }
+
+  // Stranded operators / commas
+  if (/,\s*(FROM|WHERE|GROUP|ORDER|HAVING|;|$)/im.test(stripped))
+    diags.push({ severity: "error", message: "Trailing comma before clause" });
+  if (/\b(AND|OR)\b\s*(?:;|$)/im.test(stripped))
+    diags.push({ severity: "error", message: "Boolean operator with no right-hand expression" });
+  if (/(=|<>|!=|<=|>=|<|>)\s*(?:;|$)/m.test(stripped))
+    diags.push({ severity: "error", message: "Comparison operator with no right-hand value" });
+
+  if (/\bSELECT\b/i.test(stripped) && !/\bFROM\b/i.test(stripped) && !/\bSELECT\s+\d/i.test(stripped)) {
     diags.push({ severity: "warn", message: "SELECT without FROM" });
   }
-  if (
-    /\bGROUP\s+BY\b/i.test(code) &&
-    /\bSELECT\b[\s\S]*?(\bSUM\b|\bAVG\b|\bCOUNT\b|\bMIN\b|\bMAX\b)/i.test(code) === false
-  ) {
-    // soft hint
+
+  // Aggregate without GROUP BY when other plain columns are projected
+  const agg = /\b(SUM|AVG|COUNT|MIN|MAX)\s*\(/i.test(stripped);
+  const selMatch = stripped.match(/SELECT\s+([\s\S]*?)\bFROM\b/i);
+  if (agg && selMatch && !/\bGROUP\s+BY\b/i.test(stripped)) {
+    const cols = selMatch[1].split(",").map((c) => c.trim());
+    const hasPlainCol = cols.some(
+      (c) => c && !/\b(SUM|AVG|COUNT|MIN|MAX)\s*\(/i.test(c) && !/^\*$/.test(c) && !/^\d/.test(c),
+    );
+    if (hasPlainCol)
+      diags.push({
+        severity: "error",
+        message: "Aggregate mixed with non-aggregate column without GROUP BY",
+      });
   }
+
   return diags;
+}
+
+function normalizeForCompare(s: string) {
+  return s
+    .replace(/--.*$/gm, "")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*#.*$/gm, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
 }
 
 function validatePython(code: string): Diagnostic[] {
