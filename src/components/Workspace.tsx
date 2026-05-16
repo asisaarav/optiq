@@ -977,21 +977,172 @@ function normalizeSqlForRunner(query: string) {
   return q;
 }
 
-async function runSqlLocal(query: string): Promise<ExecutionResult> {
+// ---- Intelligent fixture builder: parses tables/aliases/predicates from query ----
+
+type AlSqlDb = { exec: (sql: string) => unknown; tables: Record<string, { data: unknown[] }> };
+type AlSql = { Database: new (name: string) => AlSqlDb };
+
+function literalValue(raw: string): unknown {
+  if (/^'(.*)'$/.test(raw)) return raw.slice(1, -1);
+  if (/^(true|false)$/i.test(raw)) return raw.toLowerCase() === "true";
+  if (/^-?\d+(?:\.\d+)?$/.test(raw)) return Number(raw);
+  return raw;
+}
+
+function inferValueFor(col: string, i: number, sample?: unknown): unknown {
+  if (col === "id") return i + 1;
+  if (col.endsWith("_id")) return randInt(1, 10);
+  if (typeof sample === "number") return randInt(1, 1000);
+  if (typeof sample === "boolean") return Math.random() > 0.5;
+  if (typeof sample === "string" && /^\d{4}-\d{2}-\d{2}/.test(sample)) {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() - i);
+    return sample.length > 10 ? d.toISOString() : d.toISOString().slice(0, 10);
+  }
+  if (col.includes("name")) return `${rand(FIRST)} ${rand(LAST)}`;
+  if (col === "email") return `user${i}@example.com`;
+  if (col === "status") return rand(["active", "inactive", "pending"]);
+  if (col === "country") return rand(COUNTRIES);
+  if (col === "city") return rand(CITIES);
+  if (col.includes("date") || col.endsWith("_at")) {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() - i);
+    return d.toISOString().slice(0, 10);
+  }
+  if (/total|amount|price|revenue|cost|qty|quantity/i.test(col))
+    return +(Math.random() * 5000 + 10).toFixed(2);
+  if (typeof sample === "string") return `${col}_${i}`;
+  return `${col}_${i}`;
+}
+
+function buildSmartFixtures(query: string): Record<string, Record<string, unknown>[]> {
+  const aliasToTable = new Map<string, string>();
+  const tables = new Set<string>();
+  const fromRe = /\b(?:FROM|JOIN)\s+([a-zA-Z_]\w*)(?:\s+(?:AS\s+)?([a-zA-Z_]\w*))?/gi;
+  let m: RegExpExecArray | null;
+  while ((m = fromRe.exec(query))) {
+    const t = m[1].toLowerCase();
+    const a = (m[2] || t).toLowerCase();
+    tables.add(t);
+    aliasToTable.set(a, t);
+    aliasToTable.set(t, t);
+  }
+  if (!tables.size) return SQL_FIXTURES;
+
+  const tableCols: Record<string, Set<string>> = {};
+  const colRe = /\b([a-zA-Z_]\w*)\.([a-zA-Z_]\w*)\b/g;
+  while ((m = colRe.exec(query))) {
+    const t = aliasToTable.get(m[1].toLowerCase());
+    if (t) (tableCols[t] ||= new Set()).add(m[2].toLowerCase());
+  }
+
+  const tablePreds: Record<string, { col: string; op: string; val: unknown }[]> = {};
+  const predRe =
+    /(?:\b([a-zA-Z_]\w*)\.)?([a-zA-Z_]\w*)\s*(>=|<=|<>|!=|=|>|<|LIKE)\s*('[^']*'|-?\d+(?:\.\d+)?|TRUE|FALSE)/gi;
+  while ((m = predRe.exec(query))) {
+    const alias = (m[1] || "").toLowerCase();
+    const col = m[2].toLowerCase();
+    if (/^(select|from|join|where|on|and|or|group|order|by|having|as|limit|offset|in|not|is|null|true|false)$/.test(col))
+      continue;
+    const op = m[3].toUpperCase();
+    const val = literalValue(m[4]);
+    let table = aliasToTable.get(alias);
+    if (!table) {
+      // attribute to first table that mentioned this column
+      table = Object.entries(tableCols).find(([, s]) => s.has(col))?.[0] ?? [...tables][0];
+    }
+    if (!table) continue;
+    (tablePreds[table] ||= []).push({ col, op, val });
+    (tableCols[table] ||= new Set()).add(col);
+  }
+
+  const fixtures: Record<string, Record<string, unknown>[]> = {};
+  for (const t of tables) {
+    const baseRows = SQL_FIXTURES[t] ?? [];
+    const cols = tableCols[t] ?? new Set<string>();
+    baseRows.forEach((r) => Object.keys(r).forEach((k) => cols.add(k)));
+    if (!cols.size) cols.add("id");
+    const preds = tablePreds[t] ?? [];
+    const rows: Record<string, unknown>[] = baseRows.map((r) => ({ ...r }));
+    for (let i = 0; i < 40; i++) {
+      const r: Record<string, unknown> = {};
+      for (const c of cols) {
+        const sample = baseRows[0]?.[c];
+        r[c] = inferValueFor(c, i + rows.length, sample);
+      }
+      // Make ~80% of rows satisfy each predicate so query returns data
+      for (const p of preds) {
+        if (Math.random() > 0.2) {
+          if (p.op === "=") r[p.col] = p.val;
+          else if (p.op === ">" || p.op === ">=")
+            r[p.col] = typeof p.val === "number" ? (p.val as number) + i + 1 : p.val;
+          else if (p.op === "<" || p.op === "<=")
+            r[p.col] = typeof p.val === "number" ? Math.max(0, (p.val as number) - i - 1) : p.val;
+          else if (p.op === "LIKE" && typeof p.val === "string")
+            r[p.col] = p.val.replace(/%/g, `x${i}`);
+        }
+      }
+      rows.push(r);
+    }
+    fixtures[t] = rows;
+  }
+
+  // Foreign-key linking heuristic: child.user_id -> parent users.id
+  for (const [t, rows] of Object.entries(fixtures)) {
+    for (const r of rows) {
+      for (const k of Object.keys(r)) {
+        if (k.endsWith("_id") && k !== "id") {
+          const parent = k.slice(0, -3) + "s";
+          const parentRows = fixtures[parent] ?? SQL_FIXTURES[parent];
+          if (parentRows && parentRows.length) {
+            const ids = parentRows.map((p) => p.id).filter((x) => x !== undefined);
+            if (ids.length) r[k] = ids[randInt(0, ids.length - 1)];
+          }
+        }
+      }
+      void t;
+    }
+  }
+
+  return { ...SQL_FIXTURES, ...fixtures };
+}
+
+async function runSqlLocal(
+  query: string,
+  customFixtures?: Record<string, Record<string, unknown>[]>,
+): Promise<ExecutionResult> {
   const started = performance.now();
   const alasqlModule = await import("alasql");
-  const alasql = (alasqlModule as { default?: unknown }).default ?? alasqlModule;
-  const db = new alasql.Database("optiq_live");
-  Object.entries(SQL_FIXTURES).forEach(([table, rows]) => {
-    db.exec(`CREATE TABLE ${table}`);
-    db.tables[table].data = rows.map((row) => ({ ...row }));
+  const alasql = ((alasqlModule as { default?: unknown }).default ?? alasqlModule) as AlSql;
+  const db = new alasql.Database(`optiq_${Date.now()}`);
+  const fixtures =
+    customFixtures && Object.keys(customFixtures).length
+      ? customFixtures
+      : buildSmartFixtures(query);
+  Object.entries(fixtures).forEach(([table, rows]) => {
+    try {
+      db.exec(`CREATE TABLE ${table}`);
+      db.tables[table].data = rows.map((row) => ({ ...row }));
+    } catch {
+      /* ignore duplicate */
+    }
   });
   const normalized = normalizeSqlForRunner(query);
-  const result = db.exec(normalized);
-  const rows = Array.isArray(result) ? result.slice(0, 100) : [{ result }];
+  let result: unknown;
+  try {
+    result = db.exec(normalized);
+  } catch (e) {
+    return {
+      status: "error",
+      label: "SQL runtime error",
+      error: e instanceof Error ? e.message : String(e),
+      elapsedMs: performance.now() - started,
+    };
+  }
+  const rows = Array.isArray(result) ? (result as Record<string, unknown>[]).slice(0, 100) : [{ result }];
   return {
     status: "success",
-    label: `${rows.length} row${rows.length === 1 ? "" : "s"} returned`,
+    label: `${rows.length} row${rows.length === 1 ? "" : "s"} returned · ${Object.keys(fixtures).length} tables seeded`,
     rows,
     output: JSON.stringify(rows, null, 2),
     elapsedMs: performance.now() - started,
