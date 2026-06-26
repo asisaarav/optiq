@@ -1499,6 +1499,9 @@ function SqlPanel() {
   const [copied, setCopied] = useState(false);
   const [showSource, setShowSource] = useState(false);
   const [showTests, setShowTests] = useState(false);
+  const [showDatasets, setShowDatasets] = useState(false);
+  const [datasetStatus, setDatasetStatus] = useState<string | null>(null);
+  const [loadingDataset, setLoadingDataset] = useState<string | null>(null);
   const [fixturesText, setFixturesText] = useState("");
   const [fixturesError, setFixturesError] = useState<string | null>(null);
   const [testsText, setTestsText] = useState(
