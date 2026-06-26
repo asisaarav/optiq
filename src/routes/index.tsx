@@ -1,6 +1,8 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { useEffect } from "react";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Nav } from "@/components/Nav";
 import { Workspace } from "@/components/Workspace";
+import { useAuth } from "@/lib/useAuth";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -24,9 +26,29 @@ export const Route = createFileRoute("/")({
 });
 
 function Index() {
+  const auth = useAuth();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (auth.status === "signed-out") {
+      navigate({ to: "/auth", replace: true });
+    }
+  }, [auth.status, navigate]);
+
+  if (auth.status !== "signed-in") {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="font-mono text-xs text-muted-foreground animate-pulse">
+          Checking session…
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background text-foreground selection:bg-primary/30">
       <Nav />
+
 
       <main>
         {/* Hero + Workspace */}
