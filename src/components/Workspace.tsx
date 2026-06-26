@@ -1948,6 +1948,10 @@ function PythonPanel() {
   const html = useMemo(() => highlight(result.output, "py"), [result.output]);
   const liveDiagnostics = useMemo(() => validate(input, "PYTHON"), [input]);
   const ai = useAiOptimizer();
+  useEffect(() => {
+    const id = setTimeout(() => setResult(optimize(input, "PYTHON")), 200);
+    return () => clearTimeout(id);
+  }, [input]);
 
   async function run() {
     const code = runTarget === "input" ? input : result.output;
