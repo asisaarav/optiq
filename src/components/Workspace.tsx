@@ -2004,6 +2004,13 @@ function PythonPanel() {
                 {copied ? "Copied" : "Copy"}
               </button>
               <button
+                onClick={() => ai.run("PYTHON", input, setResult)}
+                disabled={ai.loading}
+                className="text-xs bg-secondary border border-primary/40 text-primary font-bold px-3 py-1 rounded hover:bg-primary/10 disabled:opacity-50"
+              >
+                {ai.loading ? "…" : "✨ AI"}
+              </button>
+              <button
                 onClick={() => setResult(optimize(input, "PYTHON"))}
                 className="text-xs bg-primary text-primary-foreground font-bold px-4 py-1 rounded hover:opacity-90"
               >
@@ -2012,6 +2019,7 @@ function PythonPanel() {
             </>
           }
         />
+        <AiBadge loading={ai.loading} error={ai.error} warning={ai.warning} model={ai.model} />
         <DiagnosticsBar diagnostics={liveDiagnostics} />
         <div className="grid md:grid-cols-2 h-[480px] font-mono text-sm leading-relaxed overflow-hidden">
           <div className="p-6 border-r border-border overflow-auto bg-surface-2/40">
@@ -2127,6 +2135,13 @@ function PySparkPanel() {
                 {copied ? "Copied" : "Copy"}
               </button>
               <button
+                onClick={() => ai.run("PYSPARK", input, setResult)}
+                disabled={ai.loading}
+                className="text-xs bg-secondary border border-primary/40 text-primary font-bold px-3 py-1 rounded hover:bg-primary/10 disabled:opacity-50"
+              >
+                {ai.loading ? "…" : "✨ AI"}
+              </button>
+              <button
                 onClick={() => setResult(optimize(input, "PYSPARK"))}
                 className="text-xs bg-primary text-primary-foreground font-bold px-4 py-1 rounded hover:opacity-90"
               >
@@ -2135,6 +2150,7 @@ function PySparkPanel() {
             </>
           }
         />
+        <AiBadge loading={ai.loading} error={ai.error} warning={ai.warning} model={ai.model} />
         <DiagnosticsBar diagnostics={liveDiagnostics} />
         <div className="grid md:grid-cols-2 h-[520px] font-mono text-sm leading-relaxed overflow-hidden">
           <div className="p-6 border-r border-border overflow-auto bg-surface-2/40">
