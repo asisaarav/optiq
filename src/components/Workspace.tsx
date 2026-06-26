@@ -1702,6 +1702,13 @@ function PythonPanel() {
         },
       });
       try {
+        if (py.loadPackagesFromImports) {
+          try {
+            await py.loadPackagesFromImports(code);
+          } catch {
+            /* ignore — fall through and let runtime error surface */
+          }
+        }
         await py.runPythonAsync(code);
       } catch (e: unknown) {
         buf += `\n[error] ${e instanceof Error ? e.message : String(e)}`;
