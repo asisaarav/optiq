@@ -48,10 +48,27 @@ function extractLiterals(s: string): string[] {
 
 function safetyCheck(input: string, output: string): string | undefined {
   const inLits = extractLiterals(input);
-  const outStr = output;
-  const missing = inLits.filter((l) => l.length > 0 && !outStr.includes(l));
+  const missing = inLits.filter((l) => l.length > 0 && !output.includes(l));
   if (missing.length > 0) {
     return `Rejected: literal(s) missing in optimized output: ${missing.slice(0, 3).join(", ")}`;
+  }
+  // Structural drift checks — semantics-changing edits the literal check can't catch.
+  const norm = (s: string) => s.replace(/\s+/g, " ").toUpperCase();
+  const I = norm(input);
+  const O = norm(output);
+  const count = (s: string, re: RegExp) => (s.match(re) || []).length;
+  if (count(O, /\bLEFT JOIN\b/g) > count(I, /\bLEFT JOIN\b/g) && /\bINNER JOIN\b|\bJOIN\b/.test(I)) {
+    return "Rejected: JOIN type changed (INNER→LEFT) — would change row semantics.";
+  }
+  if (/\bSELECT DISTINCT\b/.test(O) && !/\bSELECT DISTINCT\b/.test(I)) {
+    return "Rejected: DISTINCT was added — would change duplicate semantics.";
+  }
+  const fns = ["LOWER", "UPPER", "TRIM", "YEAR", "MONTH", "DAY", "DATE", "CAST", "COALESCE"];
+  for (const fn of fns) {
+    const re = new RegExp(`\\b${fn}\\s*\\(`, "g");
+    if (count(O, re) > count(I, re)) {
+      return `Rejected: added ${fn}(...) on a column — changes semantics and blocks indexes.`;
+    }
   }
   return undefined;
 }
