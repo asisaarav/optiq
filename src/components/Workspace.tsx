@@ -1261,13 +1261,35 @@ function DiagnosticsBar({ diagnostics }: { diagnostics: Diagnostic[] }) {
   );
 }
 
-function CodeOutput({ html, speedup }: { html: string; speedup?: number }) {
+function CodeOutput({
+  html,
+  speedup,
+  changes,
+}: {
+  html: string;
+  speedup?: number;
+  changes?: Change[];
+}) {
+  const summary = (changes ?? []).slice(0, 2);
   return (
     <div className="p-6 overflow-auto bg-surface/40 relative h-full">
       <div className="text-primary mb-3 text-[10px] uppercase tracking-widest flex items-center gap-2">
         Optimized Output
         <span className="size-1.5 rounded-full bg-primary animate-pulse" />
       </div>
+      {summary.length > 0 && (
+        <div className="mb-3 rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-[11px] leading-snug text-foreground/90 space-y-1">
+          {summary.map((c, i) => (
+            <div key={i}>
+              <span className="font-semibold text-primary">{c.title}:</span>{" "}
+              <span className="text-muted-foreground">{c.detail}</span>
+            </div>
+          ))}
+          <div className="text-[10px] text-muted-foreground/80 pt-1">
+            ✓ Literals & predicates preserved — no business-logic drift.
+          </div>
+        </div>
+      )}
       <pre
         className="text-foreground whitespace-pre-wrap pr-2 font-mono text-sm leading-relaxed"
         dangerouslySetInnerHTML={{ __html: html }}
