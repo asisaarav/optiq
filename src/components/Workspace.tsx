@@ -1448,7 +1448,7 @@ function CodeOutput({
             ? { face: "🎯", mood: "Tightened", tone: "text-primary" }
             : { face: "😌", mood: "Already lean", tone: "text-muted-foreground" };
   return (
-    <div className="p-6 overflow-auto bg-surface/40 relative h-full">
+    <div className="p-4 md:p-6 overflow-auto bg-surface/40 relative min-h-[360px] md:min-h-0 md:h-full">
       <div className="mb-3 flex items-center justify-between gap-3">
         <div className="text-primary text-[10px] uppercase tracking-widest flex items-center gap-2">
           Optimized Output
@@ -1987,8 +1987,8 @@ function SqlPanel() {
           </div>
         )}
 
-        <div className="grid md:grid-cols-2 h-[480px] font-mono text-sm leading-relaxed overflow-hidden">
-          <div className="p-6 border-r border-border overflow-auto bg-surface-2/40">
+        <div className="grid md:grid-cols-2 md:h-[480px] font-mono text-sm leading-relaxed overflow-hidden">
+          <div className="p-4 md:p-6 border-b md:border-b-0 md:border-r border-border overflow-auto bg-surface-2/40 min-h-[360px] md:min-h-0">
             <div className="mb-3 flex items-center justify-between gap-2">
               <div className="text-muted-foreground text-[10px] uppercase tracking-widest">
                 Input — SQL
@@ -2006,7 +2006,7 @@ function SqlPanel() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               spellCheck={false}
-              className="w-full h-[calc(100%-1.75rem)] bg-transparent resize-none outline-none text-zinc-300 font-mono text-sm leading-relaxed"
+              className="w-full h-[300px] md:h-[calc(100%-1.75rem)] bg-transparent resize-none outline-none text-zinc-300 font-mono text-sm leading-relaxed"
             />
           </div>
           <CodeOutput
@@ -2135,8 +2135,8 @@ function PythonPanel() {
         />
         <AiBadge loading={ai.loading} error={ai.error} warning={ai.warning} model={ai.model} />
         <DiagnosticsBar diagnostics={liveDiagnostics} />
-        <div className="grid md:grid-cols-2 h-[480px] font-mono text-sm leading-relaxed overflow-hidden">
-          <div className="p-6 border-r border-border overflow-auto bg-surface-2/40">
+        <div className="grid md:grid-cols-2 md:h-[480px] font-mono text-sm leading-relaxed overflow-hidden">
+          <div className="p-4 md:p-6 border-b md:border-b-0 md:border-r border-border overflow-auto bg-surface-2/40 min-h-[360px] md:min-h-0">
             <div className="mb-3 flex items-center justify-between gap-2">
               <div className="text-muted-foreground text-[10px] uppercase tracking-widest">
                 Input — Python
@@ -2156,7 +2156,7 @@ function PythonPanel() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               spellCheck={false}
-              className="w-full h-[calc(100%-1.75rem)] bg-transparent resize-none outline-none text-zinc-300 font-mono text-sm leading-relaxed"
+              className="w-full h-[300px] md:h-[calc(100%-1.75rem)] bg-transparent resize-none outline-none text-zinc-300 font-mono text-sm leading-relaxed"
             />
           </div>
           <CodeOutput
@@ -2295,8 +2295,8 @@ function PySparkPanel() {
         />
         <AiBadge loading={ai.loading} error={ai.error} warning={ai.warning} model={ai.model} />
         <DiagnosticsBar diagnostics={liveDiagnostics} />
-        <div className="grid md:grid-cols-2 h-[520px] font-mono text-sm leading-relaxed overflow-hidden">
-          <div className="p-6 border-r border-border overflow-auto bg-surface-2/40">
+        <div className="grid md:grid-cols-2 md:h-[520px] font-mono text-sm leading-relaxed overflow-hidden">
+          <div className="p-4 md:p-6 border-b md:border-b-0 md:border-r border-border overflow-auto bg-surface-2/40 min-h-[360px] md:min-h-0">
             <div className="text-muted-foreground mb-3 text-[10px] uppercase tracking-widest">
               Input — PySpark
             </div>
@@ -2304,7 +2304,7 @@ function PySparkPanel() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               spellCheck={false}
-              className="w-full h-[calc(100%-1.5rem)] bg-transparent resize-none outline-none text-zinc-300 font-mono text-sm leading-relaxed"
+              className="w-full h-[300px] md:h-[calc(100%-1.5rem)] bg-transparent resize-none outline-none text-zinc-300 font-mono text-sm leading-relaxed"
             />
           </div>
           <CodeOutput html={html} speedup={result.speedup} changes={result.changes} />
