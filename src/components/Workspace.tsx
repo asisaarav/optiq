@@ -1382,12 +1382,14 @@ function CodeOutput({
   html,
   speedup,
   changes,
+  headerRight,
 }: {
   html: string;
   speedup?: number;
   changes?: Change[];
+  headerRight?: React.ReactNode;
 }) {
-  const summary = (changes ?? []).slice(0, 2);
+  const all = changes ?? [];
   const emote =
     speedup === undefined
       ? null
@@ -1405,28 +1407,34 @@ function CodeOutput({
           Optimized Output
           <span className="size-1.5 rounded-full bg-primary animate-pulse" />
         </div>
-        {speedup !== undefined && emote && (
-          <div
-            className="group flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-2.5 py-1 transition-all hover:bg-primary/10 hover:scale-[1.02]"
-            title={`${emote.mood} — estimated speedup vs. input`}
-          >
-            <span className="text-base leading-none transition-transform group-hover:scale-125 group-hover:-rotate-6">
-              {emote.face}
-            </span>
-            <div className="flex items-baseline gap-1">
-              <span className={`font-mono font-bold text-sm ${emote.tone}`}>
-                {speedup.toFixed(0)}%
+        <div className="flex items-center gap-2">
+          {speedup !== undefined && emote && (
+            <div
+              className="group flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-2.5 py-1 transition-all hover:bg-primary/10 hover:scale-[1.02]"
+              title={`${emote.mood} — estimated speedup vs. input`}
+            >
+              <span className="text-base leading-none transition-transform group-hover:scale-125 group-hover:-rotate-6">
+                {emote.face}
               </span>
-              <span className="text-[9px] uppercase tracking-wider text-muted-foreground">
-                est. speedup
-              </span>
+              <div className="flex items-baseline gap-1">
+                <span className={`font-mono font-bold text-sm ${emote.tone}`}>
+                  {speedup.toFixed(0)}%
+                </span>
+                <span className="text-[9px] uppercase tracking-wider text-muted-foreground">
+                  est. speedup
+                </span>
+              </div>
             </div>
-          </div>
-        )}
+          )}
+          {headerRight}
+        </div>
       </div>
-      {summary.length > 0 && (
-        <div className="mb-3 rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-[11px] leading-snug text-foreground/90 space-y-1">
-          {summary.map((c, i) => (
+      {all.length > 0 && (
+        <div className="mb-3 rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-[11px] leading-snug text-foreground/90 space-y-1.5">
+          <div className="text-[9px] uppercase tracking-widest text-primary/80 font-bold">
+            Applied changes · {all.length}
+          </div>
+          {all.map((c, i) => (
             <div key={i} className="flex gap-2">
               <span className="text-primary/70 select-none">▸</span>
               <div className="min-w-0">
@@ -1692,9 +1700,10 @@ function SqlPanel() {
   }
 
 
-  async function run(specs?: TestSpec[]) {
-    const code = runTarget === "input" ? input : result.output;
-    setExecution({ status: "running", label: "Executing query…" });
+  async function run(specs?: TestSpec[], target: "input" | "output" = runTarget) {
+    setRunTarget(target);
+    const code = target === "input" ? input : result.output;
+    setExecution({ status: "running", label: `Executing ${target}…` });
     setTestResults(null);
     try {
       const fixtures = parseFixtures();
@@ -1771,22 +1780,6 @@ function SqlPanel() {
                 title="Define custom test cases"
               >
                 {showTests ? "− Tests" : "+ Tests"}
-              </button>
-              <select
-                aria-label="SQL run target"
-                value={runTarget}
-                onChange={(e) => setRunTarget(e.target.value as "input" | "output")}
-                className="px-2 py-1 bg-secondary rounded border border-border text-xs font-mono"
-              >
-                <option value="input">Run input</option>
-                <option value="output">Run optimized</option>
-              </select>
-              <button
-                onClick={() => run()}
-                disabled={execution.status === "running"}
-                className="text-xs bg-secondary border border-border px-3 py-1 rounded hover:border-primary disabled:opacity-50"
-              >
-                {execution.status === "running" ? "Running…" : "▶ Run"}
               </button>
               <button
                 onClick={() => {
@@ -1926,22 +1919,45 @@ function SqlPanel() {
 
         <div className="grid md:grid-cols-2 h-[480px] font-mono text-sm leading-relaxed overflow-hidden">
           <div className="p-6 border-r border-border overflow-auto bg-surface-2/40">
-            <div className="text-muted-foreground mb-3 text-[10px] uppercase tracking-widest">
-              Input — SQL
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <div className="text-muted-foreground text-[10px] uppercase tracking-widest">
+                Input — SQL
+              </div>
+              <button
+                onClick={() => run(undefined, "input")}
+                disabled={execution.status === "running"}
+                className="text-[10px] font-mono px-2 py-0.5 rounded border border-border bg-secondary hover:border-primary hover:text-primary disabled:opacity-50"
+                title="Run input query"
+              >
+                {execution.status === "running" && runTarget === "input" ? "⏳ Running" : "▶ Run"}
+              </button>
             </div>
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
               spellCheck={false}
-              className="w-full h-[calc(100%-1.5rem)] bg-transparent resize-none outline-none text-zinc-300 font-mono text-sm leading-relaxed"
+              className="w-full h-[calc(100%-1.75rem)] bg-transparent resize-none outline-none text-zinc-300 font-mono text-sm leading-relaxed"
             />
           </div>
-          <CodeOutput html={html} speedup={result.speedup} changes={result.changes} />
+          <CodeOutput
+            html={html}
+            speedup={result.speedup}
+            changes={result.changes}
+            headerRight={
+              <button
+                onClick={() => run(undefined, "output")}
+                disabled={execution.status === "running" || !result.output}
+                className="text-[10px] font-mono px-2 py-0.5 rounded border border-primary/40 bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-50"
+                title="Run optimized query"
+              >
+                {execution.status === "running" && runTarget === "output" ? "⏳ Running" : "▶ Run"}
+              </button>
+            }
+          />
         </div>
         <ExecutionPanel result={execution} />
       </div>
       <div className="flex flex-col gap-4">
-        <ChangesPanel changes={result.changes} />
         <TipsPanel engineKey={engine as TipsKey} />
       </div>
     </div>
@@ -1965,8 +1981,9 @@ function PythonPanel() {
     return () => clearTimeout(id);
   }, [input]);
 
-  async function run() {
-    const code = runTarget === "input" ? input : result.output;
+  async function run(target: "input" | "output" = runTarget) {
+    setRunTarget(target);
+    const code = target === "input" ? input : result.output;
     setStdout("");
     setRunning("loading");
     try {
@@ -2016,22 +2033,6 @@ function PythonPanel() {
           }
           right={
             <>
-              <select
-                aria-label="Run target"
-                value={runTarget}
-                onChange={(e) => setRunTarget(e.target.value as "input" | "output")}
-                className="px-2 py-1 bg-secondary rounded border border-border text-xs font-mono"
-              >
-                <option value="output">Run optimized</option>
-                <option value="input">Run input</option>
-              </select>
-              <button
-                onClick={run}
-                disabled={running !== "idle"}
-                className="text-xs bg-secondary border border-border px-3 py-1 rounded hover:border-primary disabled:opacity-50"
-              >
-                {running === "loading" ? "Loading…" : running === "running" ? "Running…" : "▶ Run"}
-              </button>
               <button
                 onClick={() => downloadText("optimized.py", result.output)}
                 className="text-xs bg-secondary px-3 py-1 rounded border border-border hover:border-primary"
@@ -2066,17 +2067,45 @@ function PythonPanel() {
         <DiagnosticsBar diagnostics={liveDiagnostics} />
         <div className="grid md:grid-cols-2 h-[480px] font-mono text-sm leading-relaxed overflow-hidden">
           <div className="p-6 border-r border-border overflow-auto bg-surface-2/40">
-            <div className="text-muted-foreground mb-3 text-[10px] uppercase tracking-widest">
-              Input — Python
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <div className="text-muted-foreground text-[10px] uppercase tracking-widest">
+                Input — Python
+              </div>
+              <button
+                onClick={() => run("input")}
+                disabled={running !== "idle"}
+                className="text-[10px] font-mono px-2 py-0.5 rounded border border-border bg-secondary hover:border-primary hover:text-primary disabled:opacity-50"
+                title="Run input script"
+              >
+                {running !== "idle" && runTarget === "input"
+                  ? running === "loading" ? "⏳ Loading" : "⏳ Running"
+                  : "▶ Run"}
+              </button>
             </div>
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
               spellCheck={false}
-              className="w-full h-[calc(100%-1.5rem)] bg-transparent resize-none outline-none text-zinc-300 font-mono text-sm leading-relaxed"
+              className="w-full h-[calc(100%-1.75rem)] bg-transparent resize-none outline-none text-zinc-300 font-mono text-sm leading-relaxed"
             />
           </div>
-          <CodeOutput html={html} speedup={result.speedup} changes={result.changes} />
+          <CodeOutput
+            html={html}
+            speedup={result.speedup}
+            changes={result.changes}
+            headerRight={
+              <button
+                onClick={() => run("output")}
+                disabled={running !== "idle" || !result.output}
+                className="text-[10px] font-mono px-2 py-0.5 rounded border border-primary/40 bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-50"
+                title="Run optimized script"
+              >
+                {running !== "idle" && runTarget === "output"
+                  ? running === "loading" ? "⏳ Loading" : "⏳ Running"
+                  : "▶ Run"}
+              </button>
+            }
+          />
         </div>
         <div className="border-t border-border p-4 bg-surface-2/30">
           <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">
@@ -2088,7 +2117,6 @@ function PythonPanel() {
         </div>
       </div>
       <div className="flex flex-col gap-4">
-        <ChangesPanel changes={result.changes} />
         <TipsPanel engineKey="PYTHON" />
       </div>
     </div>
@@ -2240,7 +2268,7 @@ function PySparkPanel() {
         )}
       </div>
       <div className="flex flex-col gap-4">
-        <ChangesPanel changes={result.changes} />
+        
         <TipsPanel engineKey="PYSPARK" />
       </div>
     </div>
