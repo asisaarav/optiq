@@ -1635,6 +1635,13 @@ function SqlPanel() {
   const liveDiagnostics = useMemo(() => validate(input, engine), [input, engine]);
   const ai = useAiOptimizer();
 
+  // Keep optimized output in sync with the current input so the right pane
+  // never shows a stale rewrite from a previous query/engine.
+  useEffect(() => {
+    const id = setTimeout(() => setResult(optimize(input, engine)), 200);
+    return () => clearTimeout(id);
+  }, [input, engine]);
+
   function changeEngine(e: SqlEngine) {
     setEngine(e);
     setInput(SQL_SAMPLES[e]);
