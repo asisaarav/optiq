@@ -1155,6 +1155,7 @@ type PyodideRuntime = {
   setStdout: (options: { batched: (text: string) => void }) => void;
   setStderr: (options: { batched: (text: string) => void }) => void;
   runPythonAsync: (code: string) => Promise<unknown>;
+  loadPackagesFromImports?: (code: string) => Promise<void>;
 };
 
 type PyodideLoader = (options: { indexURL: string }) => Promise<PyodideRuntime>;
@@ -1701,6 +1702,13 @@ function PythonPanel() {
         },
       });
       try {
+        if (py.loadPackagesFromImports) {
+          try {
+            await py.loadPackagesFromImports(code);
+          } catch {
+            /* ignore — fall through and let runtime error surface */
+          }
+        }
         await py.runPythonAsync(code);
       } catch (e: unknown) {
         buf += `\n[error] ${e instanceof Error ? e.message : String(e)}`;
@@ -1739,6 +1747,12 @@ function PythonPanel() {
                 className="text-xs bg-secondary border border-border px-3 py-1 rounded hover:border-primary disabled:opacity-50"
               >
                 {running === "loading" ? "Loading…" : running === "running" ? "Running…" : "▶ Run"}
+              </button>
+              <button
+                onClick={() => downloadText("optimized.py", result.output)}
+                className="text-xs bg-secondary px-3 py-1 rounded border border-border hover:border-primary"
+              >
+                ⬇ .py
               </button>
               <button
                 onClick={() => {
@@ -1791,13 +1805,53 @@ function PythonPanel() {
   );
 }
 
-// PySpark panel
+// PySpark panel — static analyzer + logical plan preview
+
+type PlanStep = { op: string; detail: string };
+
+function buildPySparkPlan(code: string): PlanStep[] {
+  const steps: PlanStep[] = [];
+  const reads = code.match(/spark\.read\.(\w+)\(([^)]+)\)/g) || [];
+  reads.forEach((r) => {
+    const m = r.match(/spark\.read\.(\w+)\(([^)]+)\)/);
+    if (m) steps.push({ op: "Scan", detail: `${m[1]}(${m[2]})` });
+  });
+  const filters = code.match(/\.filter\(([^)]+)\)|\.where\(([^)]+)\)/g) || [];
+  filters.forEach((f) => steps.push({ op: "Filter", detail: f.replace(/^\./, "") }));
+  const withCols = code.match(/\.withColumn\(([^)]+)\)/g) || [];
+  withCols.forEach((w) => steps.push({ op: "Project", detail: w.replace(/^\./, "") }));
+  const joins = code.match(/\.join\(([^)]+)\)/g) || [];
+  joins.forEach((j) => steps.push({ op: "Join", detail: j.replace(/^\./, "") }));
+  const groups = code.match(/\.groupBy\(([^)]+)\)/g) || [];
+  groups.forEach((g) => steps.push({ op: "Aggregate", detail: g.replace(/^\./, "") }));
+  const orders = code.match(/\.orderBy\(([^)]+)\)|\.sort\(([^)]+)\)/g) || [];
+  orders.forEach((o) => steps.push({ op: "Sort", detail: o.replace(/^\./, "") }));
+  const actions = ["collect", "count", "show", "take", "first", "toPandas", "write"];
+  actions.forEach((a) => {
+    if (new RegExp(`\\.${a}\\(`).test(code))
+      steps.push({ op: "Action", detail: `${a}() — triggers execution` });
+  });
+  return steps;
+}
+
+function downloadText(filename: string, text: string) {
+  const blob = new Blob([text], { type: "text/plain" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 function PySparkPanel() {
   const [input, setInput] = useState(PYSPARK_SAMPLE);
   const [result, setResult] = useState<Optimization>(() => optimize(PYSPARK_SAMPLE, "PYSPARK"));
   const [copied, setCopied] = useState(false);
+  const [showPlan, setShowPlan] = useState(true);
   const html = useMemo(() => highlight(result.output, "py"), [result.output]);
   const liveDiagnostics = useMemo(() => validate(input, "PYSPARK"), [input]);
+  const plan = useMemo(() => buildPySparkPlan(result.output || input), [result.output, input]);
 
   return (
     <div className="grid lg:grid-cols-[1fr_320px] gap-6">
@@ -1805,11 +1859,23 @@ function PySparkPanel() {
         <Toolbar
           left={
             <span className="text-xs text-muted-foreground font-mono">
-              PYSPARK 3.5 · runs on your cluster
+              PYSPARK 3.5 · static analyzer · no JVM in browser
             </span>
           }
           right={
             <>
+              <button
+                onClick={() => setShowPlan((v) => !v)}
+                className={`text-xs px-2 py-1 rounded border ${showPlan ? "border-primary text-primary" : "border-border text-muted-foreground hover:text-foreground"}`}
+              >
+                {showPlan ? "− Plan" : "+ Plan"}
+              </button>
+              <button
+                onClick={() => downloadText("optimized.py", result.output)}
+                className="text-xs bg-secondary px-3 py-1 rounded border border-border hover:border-primary"
+              >
+                ⬇ .py
+              </button>
               <button
                 onClick={() => {
                   navigator.clipboard?.writeText(result.output);
@@ -1844,6 +1910,33 @@ function PySparkPanel() {
           </div>
           <CodeOutput html={html} speedup={result.speedup} />
         </div>
+        {showPlan && (
+          <div className="border-t border-border bg-surface-2/30 p-4">
+            <div className="mb-2 flex items-center justify-between">
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                Derived logical plan · {plan.length} steps
+              </div>
+              <span className="text-[10px] text-muted-foreground font-mono">
+                spark-submit optimized.py
+              </span>
+            </div>
+            {plan.length ? (
+              <ol className="space-y-1 font-mono text-xs">
+                {plan.map((s, i) => (
+                  <li key={i} className="flex gap-3">
+                    <span className="text-muted-foreground w-6">{String(i + 1).padStart(2, "0")}</span>
+                    <span className="text-primary font-bold w-20">{s.op}</span>
+                    <span className="text-zinc-300 truncate">{s.detail}</span>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <div className="text-xs text-muted-foreground font-mono">
+                No Spark operations detected — write a DataFrame pipeline above.
+              </div>
+            )}
+          </div>
+        )}
       </div>
       <div className="flex flex-col gap-4">
         <ChangesPanel changes={result.changes} />
