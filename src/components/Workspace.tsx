@@ -1799,18 +1799,15 @@ function SqlPanel() {
                 {copied ? "Copied" : "Copy"}
               </button>
               <button
-                onClick={() => ai.run(engine, input, setResult)}
+                onClick={() => {
+                  setResult(optimize(input, engine));
+                  ai.run(engine, input, setResult);
+                }}
                 disabled={ai.loading}
-                className="text-xs bg-secondary border border-primary/40 text-primary font-bold px-3 py-1 rounded hover:bg-primary/10 disabled:opacity-50"
-                title="Optimize with AI (Lovable Gemini)"
+                className="text-xs bg-primary text-primary-foreground font-bold px-4 py-1 rounded hover:opacity-90 transition disabled:opacity-60"
+                title="Run rule-based + AI optimization"
               >
-                {ai.loading ? "…" : "✨ AI"}
-              </button>
-              <button
-                onClick={() => setResult(optimize(input, engine))}
-                className="text-xs bg-primary text-primary-foreground font-bold px-4 py-1 rounded hover:opacity-90 transition"
-              >
-                OPTIMIZE
+                {ai.loading ? "✨ OPTIMIZING…" : "✨ OPTIMIZE"}
               </button>
             </>
           }
