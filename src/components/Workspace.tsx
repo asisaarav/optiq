@@ -1918,6 +1918,7 @@ function PythonPanel() {
   const [runTarget, setRunTarget] = useState<"input" | "output">("output");
   const html = useMemo(() => highlight(result.output, "py"), [result.output]);
   const liveDiagnostics = useMemo(() => validate(input, "PYTHON"), [input]);
+  const ai = useAiOptimizer();
 
   async function run() {
     const code = runTarget === "input" ? input : result.output;
@@ -2089,6 +2090,7 @@ function PySparkPanel() {
   const [showPlan, setShowPlan] = useState(true);
   const html = useMemo(() => highlight(result.output, "py"), [result.output]);
   const liveDiagnostics = useMemo(() => validate(input, "PYSPARK"), [input]);
+  const ai = useAiOptimizer();
   const plan = useMemo(() => buildPySparkPlan(result.output || input), [result.output, input]);
 
   return (
