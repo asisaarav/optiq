@@ -2067,17 +2067,45 @@ function PythonPanel() {
         <DiagnosticsBar diagnostics={liveDiagnostics} />
         <div className="grid md:grid-cols-2 h-[480px] font-mono text-sm leading-relaxed overflow-hidden">
           <div className="p-6 border-r border-border overflow-auto bg-surface-2/40">
-            <div className="text-muted-foreground mb-3 text-[10px] uppercase tracking-widest">
-              Input — Python
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <div className="text-muted-foreground text-[10px] uppercase tracking-widest">
+                Input — Python
+              </div>
+              <button
+                onClick={() => run("input")}
+                disabled={running !== "idle"}
+                className="text-[10px] font-mono px-2 py-0.5 rounded border border-border bg-secondary hover:border-primary hover:text-primary disabled:opacity-50"
+                title="Run input script"
+              >
+                {running !== "idle" && runTarget === "input"
+                  ? running === "loading" ? "⏳ Loading" : "⏳ Running"
+                  : "▶ Run"}
+              </button>
             </div>
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
               spellCheck={false}
-              className="w-full h-[calc(100%-1.5rem)] bg-transparent resize-none outline-none text-zinc-300 font-mono text-sm leading-relaxed"
+              className="w-full h-[calc(100%-1.75rem)] bg-transparent resize-none outline-none text-zinc-300 font-mono text-sm leading-relaxed"
             />
           </div>
-          <CodeOutput html={html} speedup={result.speedup} changes={result.changes} />
+          <CodeOutput
+            html={html}
+            speedup={result.speedup}
+            changes={result.changes}
+            headerRight={
+              <button
+                onClick={() => run("output")}
+                disabled={running !== "idle" || !result.output}
+                className="text-[10px] font-mono px-2 py-0.5 rounded border border-primary/40 bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-50"
+                title="Run optimized script"
+              >
+                {running !== "idle" && runTarget === "output"
+                  ? running === "loading" ? "⏳ Loading" : "⏳ Running"
+                  : "▶ Run"}
+              </button>
+            }
+          />
         </div>
         <div className="border-t border-border p-4 bg-surface-2/30">
           <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">
@@ -2089,7 +2117,6 @@ function PythonPanel() {
         </div>
       </div>
       <div className="flex flex-col gap-4">
-        <ChangesPanel changes={result.changes} />
         <TipsPanel engineKey="PYTHON" />
       </div>
     </div>
