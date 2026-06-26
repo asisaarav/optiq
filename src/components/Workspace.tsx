@@ -1090,7 +1090,10 @@ function normalizeSqlForRunner(query: string) {
 // ---- Intelligent fixture builder: parses tables/aliases/predicates from query ----
 
 type AlSqlDb = { exec: (sql: string) => unknown; tables: Record<string, { data: unknown[] }> };
-type AlSql = { Database: new (name: string) => AlSqlDb };
+type AlSql = {
+  Database: new (name: string) => AlSqlDb;
+  tables: Record<string, { data: unknown[] }>;
+};
 
 function literalValue(raw: string): unknown {
   if (/^'(.*)'$/.test(raw)) return raw.slice(1, -1);
