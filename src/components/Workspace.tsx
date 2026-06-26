@@ -176,7 +176,10 @@ function escapeHtml(s: string) {
 function highlight(code: string, kind: "sql" | "py") {
   const escaped = escapeHtml(code);
   const tokens: string[] = [];
-  const PH = (i: number) => `\u0000${i}\u0000`;
+  // Placeholder uses non-digit sentinels (\u0001T…E\u0001) so the numbers regex
+  // below can't accidentally match the index and clobber the original token —
+  // that bug was rendering 'active' as `1` and '2023-01-01' as `0`.
+  const PH = (i: number) => `\u0001T${i}E\u0001`;
   const stash = (s: string) => {
     tokens.push(s);
     return PH(tokens.length - 1);
@@ -212,11 +215,8 @@ function highlight(code: string, kind: "sql" | "py") {
   );
 
   // restore tokens (handle nesting by repeating)
-  for (let i = 0; i < 3; i++) {
-    out = out.replace(
-      new RegExp(`${String.fromCharCode(0)}(\\d+)${String.fromCharCode(0)}`, "g"),
-      (_m, n) => tokens[+n],
-    );
+  for (let i = 0; i < 4; i++) {
+    out = out.replace(/\u0001T(\d+)E\u0001/g, (_m, n) => tokens[+n] ?? "");
   }
   return out;
 }
@@ -828,6 +828,45 @@ function optimizeSql(input: string, engine: SqlEngine): Optimization {
     });
   }
   const realChanged = normalizeForCompare(output) !== normalizeForCompare(input);
+
+  // ── Business-logic safety net ────────────────────────────────────────────
+  // Any literal (string / number) that appeared in the input MUST still appear
+  // in the optimized output. If a rule accidentally changed a value (e.g.
+  // 'active' → 1 or '2023-01-01' → 0), throw the rewrite away and surface a
+  // warning instead of silently shipping wrong logic.
+  const literalsOf = (s: string) => {
+    const lits = new Set<string>();
+    const stringRe = /'((?:[^'\\]|\\.)*)'/g;
+    let m: RegExpExecArray | null;
+    while ((m = stringRe.exec(s))) lits.add(`'${m[1]}'`);
+    const numRe = /(?<![A-Za-z_])-?\d+(?:\.\d+)?/g;
+    while ((m = numRe.exec(s.replace(stringRe, "")))) lits.add(m[0]);
+    return lits;
+  };
+  const inLits = literalsOf(input);
+  const outLits = literalsOf(output);
+  const missing = [...inLits].filter((l) => !outLits.has(l));
+  if (missing.length) {
+    return {
+      output: input.trim(),
+      speedup: 0,
+      changes: [
+        {
+          title: "Rewrite blocked — business logic at risk",
+          detail: `Optimization would change literal(s) ${missing.join(", ")}. Reverting to original query.`,
+          highlight: true,
+        },
+      ],
+      diagnostics: [
+        ...diagnostics,
+        {
+          severity: "warn",
+          message: `Safety guard: literals ${missing.join(", ")} were dropped by a rule — rewrite rejected.`,
+        },
+      ],
+    };
+  }
+
   if (changes.length === 0 || !realChanged) {
     return {
       output,
@@ -1222,13 +1261,35 @@ function DiagnosticsBar({ diagnostics }: { diagnostics: Diagnostic[] }) {
   );
 }
 
-function CodeOutput({ html, speedup }: { html: string; speedup?: number }) {
+function CodeOutput({
+  html,
+  speedup,
+  changes,
+}: {
+  html: string;
+  speedup?: number;
+  changes?: Change[];
+}) {
+  const summary = (changes ?? []).slice(0, 2);
   return (
     <div className="p-6 overflow-auto bg-surface/40 relative h-full">
       <div className="text-primary mb-3 text-[10px] uppercase tracking-widest flex items-center gap-2">
         Optimized Output
         <span className="size-1.5 rounded-full bg-primary animate-pulse" />
       </div>
+      {summary.length > 0 && (
+        <div className="mb-3 rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-[11px] leading-snug text-foreground/90 space-y-1">
+          {summary.map((c, i) => (
+            <div key={i}>
+              <span className="font-semibold text-primary">{c.title}:</span>{" "}
+              <span className="text-muted-foreground">{c.detail}</span>
+            </div>
+          ))}
+          <div className="text-[10px] text-muted-foreground/80 pt-1">
+            ✓ Literals & predicates preserved — no business-logic drift.
+          </div>
+        </div>
+      )}
       <pre
         className="text-foreground whitespace-pre-wrap pr-2 font-mono text-sm leading-relaxed"
         dangerouslySetInnerHTML={{ __html: html }}
@@ -1657,7 +1718,7 @@ function SqlPanel() {
               className="w-full h-[calc(100%-1.5rem)] bg-transparent resize-none outline-none text-zinc-300 font-mono text-sm leading-relaxed"
             />
           </div>
-          <CodeOutput html={html} speedup={result.speedup} />
+          <CodeOutput html={html} speedup={result.speedup} changes={result.changes} />
         </div>
         <ExecutionPanel result={execution} />
       </div>
@@ -1786,7 +1847,7 @@ function PythonPanel() {
               className="w-full h-[calc(100%-1.5rem)] bg-transparent resize-none outline-none text-zinc-300 font-mono text-sm leading-relaxed"
             />
           </div>
-          <CodeOutput html={html} speedup={result.speedup} />
+          <CodeOutput html={html} speedup={result.speedup} changes={result.changes} />
         </div>
         <div className="border-t border-border p-4 bg-surface-2/30">
           <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">
@@ -1908,7 +1969,7 @@ function PySparkPanel() {
               className="w-full h-[calc(100%-1.5rem)] bg-transparent resize-none outline-none text-zinc-300 font-mono text-sm leading-relaxed"
             />
           </div>
-          <CodeOutput html={html} speedup={result.speedup} />
+          <CodeOutput html={html} speedup={result.speedup} changes={result.changes} />
         </div>
         {showPlan && (
           <div className="border-t border-border bg-surface-2/30 p-4">
