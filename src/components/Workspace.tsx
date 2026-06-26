@@ -1606,6 +1606,13 @@ function SqlPanel() {
           right={
             <>
               <button
+                onClick={() => setShowDatasets((v) => !v)}
+                className={`text-xs px-2 py-1 rounded border ${showDatasets ? "border-primary text-primary" : "border-border text-muted-foreground hover:text-foreground"}`}
+                title="Load an open dataset (Titanic, Iris, Diamonds, etc.)"
+              >
+                {showDatasets ? "− Dataset" : "+ Dataset"}
+              </button>
+              <button
                 onClick={() => setShowSource((v) => !v)}
                 className={`text-xs px-2 py-1 rounded border ${showSource ? "border-primary text-primary" : "border-border text-muted-foreground hover:text-foreground"}`}
                 title="Provide custom schema / sample data"
