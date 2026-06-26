@@ -18,7 +18,7 @@ export default defineConfig({
       alias: [
         // alasql ships a "node" export that pulls in react-native via its fs build.
         // Force the browser bundle everywhere so SSR/Worker bundling doesn't choke.
-        { find: /^alasql$/, replacement: "alasql/dist/alasql.min.js" },
+        { find: /^alasql$/, replacement: path.resolve(__dirname, "node_modules/alasql/dist/alasql.min.js") },
         // Belt-and-braces: if anything still references react-native, shim to empty.
         { find: /^react-native$/, replacement: path.resolve(__dirname, "src/shims/empty.ts") },
       ],
