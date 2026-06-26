@@ -1663,6 +1663,44 @@ function SqlPanel() {
         />
         <DiagnosticsBar diagnostics={liveDiagnostics} />
 
+        {showDatasets && (
+          <div className="px-4 py-3 border-b border-border bg-surface-2/40 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                Open datasets · cached in browser · CORS-friendly public CDNs
+              </div>
+              {datasetStatus && (
+                <div className="text-[10px] font-mono text-muted-foreground">{datasetStatus}</div>
+              )}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-72 overflow-y-auto">
+              {OPEN_DATASETS.map((ds) => (
+                <button
+                  key={ds.id}
+                  onClick={() => pickDataset(ds)}
+                  disabled={loadingDataset !== null}
+                  className="text-left p-2 rounded border border-border bg-secondary/40 hover:border-primary transition disabled:opacity-50"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-xs font-bold text-foreground truncate">{ds.name}</div>
+                    <div className="text-[9px] text-muted-foreground font-mono shrink-0">
+                      {loadingDataset === ds.id ? "…" : `${ds.rows.toLocaleString()} rows`}
+                    </div>
+                  </div>
+                  <div className="text-[10px] text-muted-foreground mt-0.5 line-clamp-2">{ds.description}</div>
+                  <div className="text-[9px] mt-1 flex gap-2 text-muted-foreground/70 font-mono">
+                    <span>{ds.domain}</span>
+                    <span>·</span>
+                    <span>table: {ds.table}</span>
+                    <span>·</span>
+                    <span>{ds.license}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {showSource && (
           <div className="px-4 py-3 border-b border-border bg-surface-2/40 space-y-2">
             <div className="flex items-center justify-between">
