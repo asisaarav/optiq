@@ -1448,7 +1448,7 @@ function CodeOutput({
             ? { face: "🎯", mood: "Tightened", tone: "text-primary" }
             : { face: "😌", mood: "Already lean", tone: "text-muted-foreground" };
   return (
-    <div className="p-6 overflow-auto bg-surface/40 relative h-full">
+    <div className="p-4 md:p-6 overflow-auto bg-surface/40 relative min-h-[360px] md:min-h-0 md:h-full">
       <div className="mb-3 flex items-center justify-between gap-3">
         <div className="text-primary text-[10px] uppercase tracking-widest flex items-center gap-2">
           Optimized Output
