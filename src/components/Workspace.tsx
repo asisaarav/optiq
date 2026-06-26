@@ -1700,9 +1700,10 @@ function SqlPanel() {
   }
 
 
-  async function run(specs?: TestSpec[]) {
-    const code = runTarget === "input" ? input : result.output;
-    setExecution({ status: "running", label: "Executing query…" });
+  async function run(specs?: TestSpec[], target: "input" | "output" = runTarget) {
+    setRunTarget(target);
+    const code = target === "input" ? input : result.output;
+    setExecution({ status: "running", label: `Executing ${target}…` });
     setTestResults(null);
     try {
       const fixtures = parseFixtures();
