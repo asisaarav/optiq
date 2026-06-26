@@ -1112,7 +1112,7 @@ async function runSqlLocal(
   customFixtures?: Record<string, Record<string, unknown>[]>,
 ): Promise<ExecutionResult> {
   const started = performance.now();
-  const alasqlModule = await import(/* @vite-ignore */ "alasql/dist/alasql.js" as string);
+  const alasqlModule = await import("alasql");
   const alasql = ((alasqlModule as { default?: unknown }).default ?? alasqlModule) as AlSql;
   const db = new alasql.Database(`optiq_${Date.now()}`);
   const fixtures =
