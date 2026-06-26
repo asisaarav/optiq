@@ -1095,11 +1095,42 @@ function buildSmartFixtures(query: string): Record<string, Record<string, unknow
     const val = literalValue(m[4]);
     let table = aliasToTable.get(alias);
     if (!table) {
-      // attribute to first table that mentioned this column
       table = Object.entries(tableCols).find(([, s]) => s.has(col))?.[0] ?? [...tables][0];
     }
     if (!table) continue;
     (tablePreds[table] ||= []).push({ col, op, val });
+    (tableCols[table] ||= new Set()).add(col);
+  }
+
+  // Function-wrapped predicates: LOWER(TRIM(u.email))='x', YEAR(o.created_at)=2026,
+  // DATE(col) >= '2024-01-01', UPPER(col)='ACTIVE', etc. Seed the underlying
+  // column with a value that satisfies the predicate after the function applies.
+  const fnPredRe =
+    /\b(LOWER|UPPER|TRIM|LTRIM|RTRIM|YEAR|MONTH|DAY|DATE|CAST|COALESCE)\s*\(\s*([^()]*?(?:\([^()]*\)[^()]*?)*)\)\s*(>=|<=|<>|!=|=|>|<|LIKE)\s*('[^']*'|-?\d+(?:\.\d+)?)/gi;
+  while ((m = fnPredRe.exec(query))) {
+    const fn = m[1].toUpperCase();
+    const inner = m[2];
+    const op = m[3].toUpperCase();
+    const raw = literalValue(m[4]);
+    const colMatch =
+      inner.match(/([a-zA-Z_]\w*)\.([a-zA-Z_]\w*)/) ||
+      inner.match(/\b([a-zA-Z_]\w*)\b\s*\)?\s*$/);
+    if (!colMatch) continue;
+    const alias = (colMatch.length === 3 ? colMatch[1] : "").toLowerCase();
+    const col = (colMatch.length === 3 ? colMatch[2] : colMatch[1]).toLowerCase();
+    let table = aliasToTable.get(alias);
+    if (!table) {
+      table = Object.entries(tableCols).find(([, s]) => s.has(col))?.[0] ?? [...tables][0];
+    }
+    if (!table) continue;
+    let val: unknown = raw;
+    if (fn === "YEAR" && typeof raw === "number")
+      val = `${raw}-0${1 + (Math.floor(Math.random() * 9))}-15`;
+    else if (fn === "MONTH" && typeof raw === "number")
+      val = `2024-${String(raw).padStart(2, "0")}-15`;
+    else if (fn === "DAY" && typeof raw === "number")
+      val = `2024-06-${String(raw).padStart(2, "0")}`;
+    (tablePreds[table] ||= []).push({ col, op: op === "LIKE" ? "=" : op, val });
     (tableCols[table] ||= new Set()).add(col);
   }
 
