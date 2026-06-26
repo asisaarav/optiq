@@ -1718,7 +1718,7 @@ function SqlPanel() {
               className="w-full h-[calc(100%-1.5rem)] bg-transparent resize-none outline-none text-zinc-300 font-mono text-sm leading-relaxed"
             />
           </div>
-          <CodeOutput html={html} speedup={result.speedup} />
+          <CodeOutput html={html} speedup={result.speedup} changes={result.changes} />
         </div>
         <ExecutionPanel result={execution} />
       </div>
@@ -1847,7 +1847,7 @@ function PythonPanel() {
               className="w-full h-[calc(100%-1.5rem)] bg-transparent resize-none outline-none text-zinc-300 font-mono text-sm leading-relaxed"
             />
           </div>
-          <CodeOutput html={html} speedup={result.speedup} />
+          <CodeOutput html={html} speedup={result.speedup} changes={result.changes} />
         </div>
         <div className="border-t border-border p-4 bg-surface-2/30">
           <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">
@@ -1969,7 +1969,7 @@ function PySparkPanel() {
               className="w-full h-[calc(100%-1.5rem)] bg-transparent resize-none outline-none text-zinc-300 font-mono text-sm leading-relaxed"
             />
           </div>
-          <CodeOutput html={html} speedup={result.speedup} />
+          <CodeOutput html={html} speedup={result.speedup} changes={result.changes} />
         </div>
         {showPlan && (
           <div className="border-t border-border bg-surface-2/30 p-4">
