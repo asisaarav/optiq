@@ -1752,14 +1752,16 @@ function SqlPanel() {
     setRunTarget(target);
     const code = target === "input" ? input : result.output;
     setExecution({ status: "running", label: `Executing ${target}…` });
+    setProgress({ phase: "Starting", pct: 5 });
     setTestResults(null);
     try {
       const fixtures = parseFixtures();
       if (fixturesText.trim() && !fixtures) {
         setExecution({ status: "error", label: "Bad fixtures JSON", error: fixturesError ?? "" });
+        setProgress(null);
         return;
       }
-      const ran = await runSqlLocal(code, fixtures);
+      const ran = await runSqlLocal(code, fixtures, (p) => setProgress(p));
       setExecution(ran);
       if (specs && specs.length) setTestResults(runTests(specs, ran));
     } catch (e: unknown) {
@@ -1768,6 +1770,9 @@ function SqlPanel() {
         label: "Execution failed",
         error: e instanceof Error ? e.message : String(e),
       });
+    } finally {
+      // brief delay so users can see the 100% tick
+      setTimeout(() => setProgress(null), 400);
     }
   }
 
