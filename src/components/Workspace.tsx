@@ -1,6 +1,69 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useServerFn } from "@tanstack/react-start";
 import { ENGINE_TIPS, type Tip, type TipCategory, type TipsKey } from "@/lib/engineTips";
 import { OPEN_DATASETS, loadDataset, buildSampleQuery, type OpenDataset } from "@/lib/openDatasets";
+import { aiOptimize } from "@/lib/aiOptimize.functions";
+
+function useAiOptimizer() {
+  const fn = useServerFn(aiOptimize);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
+  const [model, setModel] = useState<string | null>(null);
+  async function run(
+    engine: string,
+    code: string,
+    apply: (r: Optimization) => void,
+  ): Promise<void> {
+    setLoading(true);
+    setError(null);
+    setWarning(null);
+    try {
+      const r = await fn({ data: { engine, code } });
+      setWarning(r.safetyWarning ?? null);
+      setModel(r.model);
+      apply({
+        output: r.output,
+        speedup: r.speedup,
+        changes: r.changes.length
+          ? r.changes
+          : [{ title: "AI: no rewrite", detail: r.notes || "Already efficient per AI review." }],
+        diagnostics: [],
+      });
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "AI optimize failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+  return { loading, error, warning, model, run };
+}
+
+function AiBadge({
+  loading,
+  error,
+  warning,
+  model,
+}: {
+  loading: boolean;
+  error: string | null;
+  warning: string | null;
+  model: string | null;
+}) {
+  if (!loading && !error && !warning && !model) return null;
+  return (
+    <div className="px-4 py-1.5 text-[10px] font-mono border-b border-border bg-surface-2/30 flex items-center gap-3">
+      {loading && <span className="text-primary animate-pulse">✨ AI optimizing…</span>}
+      {!loading && model && (
+        <span className="text-muted-foreground">
+          ✨ {model.split("/").pop()}
+        </span>
+      )}
+      {warning && <span className="text-amber-400">⚠ {warning}</span>}
+      {error && <span className="text-destructive">✕ {error}</span>}
+    </div>
+  );
+}
 
 type Mode = "SQL" | "PYTHON" | "PYSPARK" | "DATA";
 
