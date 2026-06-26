@@ -1981,8 +1981,9 @@ function PythonPanel() {
     return () => clearTimeout(id);
   }, [input]);
 
-  async function run() {
-    const code = runTarget === "input" ? input : result.output;
+  async function run(target: "input" | "output" = runTarget) {
+    setRunTarget(target);
+    const code = target === "input" ? input : result.output;
     setStdout("");
     setRunning("loading");
     try {
