@@ -1263,18 +1263,60 @@ function buildSmartFixtures(query: string): Record<string, Record<string, unknow
   return { ...SQL_FIXTURES, ...fixtures };
 }
 
+// Cache generated fixtures across runs, keyed by sorted table names.
+const FIXTURE_CACHE = new Map<string, Record<string, Record<string, unknown>[]>>();
+
+export type RunPhase = { phase: string; pct: number; detail?: string };
+
+function extractTableNames(query: string): string[] {
+  const set = new Set<string>();
+  const re = /\b(?:FROM|JOIN)\s+([a-zA-Z_]\w*)/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(query))) set.add(m[1].toLowerCase());
+  return [...set].sort();
+}
+
 async function runSqlLocal(
   query: string,
   customFixtures?: Record<string, Record<string, unknown>[]>,
+  onProgress?: (p: RunPhase) => void,
 ): Promise<ExecutionResult> {
   const started = performance.now();
+  const tick = (phase: string, pct: number, detail?: string) => {
+    onProgress?.({ phase, pct, detail });
+  };
+  // Yield to let the UI paint between phases.
+  const yieldUI = () => new Promise<void>((r) => setTimeout(r, 16));
+
+  tick("Parsing query", 10);
+  await yieldUI();
+  const tables = extractTableNames(query);
+  const cacheKey = tables.join("|");
+
+  tick("Loading SQL engine", 25);
   const alasqlModule = await import("alasql");
   const alasql = ((alasqlModule as { default?: unknown }).default ?? alasqlModule) as AlSql;
   const db = new alasql.Database(`optiq_${Date.now()}`);
-  const fixtures =
-    customFixtures && Object.keys(customFixtures).length
-      ? customFixtures
-      : buildSmartFixtures(query);
+
+  let fixtures: Record<string, Record<string, unknown>[]>;
+  let fromCache = false;
+  if (customFixtures && Object.keys(customFixtures).length) {
+    fixtures = customFixtures;
+    tick("Using provided fixtures", 55, `${Object.keys(fixtures).length} tables`);
+  } else if (cacheKey && FIXTURE_CACHE.has(cacheKey)) {
+    fixtures = FIXTURE_CACHE.get(cacheKey)!;
+    fromCache = true;
+    tick("Reusing cached data", 55, `${tables.join(", ") || "—"}`);
+  } else {
+    tick("Generating sample data", 45, tables.length ? tables.join(", ") : "auto");
+    await yieldUI();
+    fixtures = buildSmartFixtures(query);
+    if (cacheKey) FIXTURE_CACHE.set(cacheKey, fixtures);
+    tick("Sample data ready", 65, `${Object.keys(fixtures).length} tables`);
+  }
+  await yieldUI();
+
+  tick("Seeding in-memory DB", 75);
   Object.entries(fixtures).forEach(([table, rows]) => {
     try {
       db.exec(`CREATE TABLE ${table}`);
@@ -1283,11 +1325,15 @@ async function runSqlLocal(
       /* ignore duplicate */
     }
   });
+  await yieldUI();
+
+  tick("Executing query", 90);
   const normalized = normalizeSqlForRunner(query);
   let result: unknown;
   try {
     result = db.exec(normalized);
   } catch (e) {
+    tick("Failed", 100);
     return {
       status: "error",
       label: "SQL runtime error",
@@ -1296,9 +1342,10 @@ async function runSqlLocal(
     };
   }
   const rows = Array.isArray(result) ? (result as Record<string, unknown>[]).slice(0, 100) : [{ result }];
+  tick("Done", 100);
   return {
     status: "success",
-    label: `${rows.length} row${rows.length === 1 ? "" : "s"} returned · ${Object.keys(fixtures).length} tables seeded`,
+    label: `${rows.length} row${rows.length === 1 ? "" : "s"} · ${Object.keys(fixtures).length} tables ${fromCache ? "(cached)" : "(generated)"}`,
     rows,
     output: JSON.stringify(rows, null, 2),
     elapsedMs: performance.now() - started,
@@ -1642,6 +1689,7 @@ function SqlPanel() {
   );
   const [runTarget, setRunTarget] = useState<"input" | "output">("input");
   const [execution, setExecution] = useState<ExecutionResult>({ status: "idle", label: "Ready" });
+  const [progress, setProgress] = useState<RunPhase | null>(null);
   const [copied, setCopied] = useState(false);
   const [showSource, setShowSource] = useState(false);
   const [showTests, setShowTests] = useState(false);
@@ -1704,14 +1752,16 @@ function SqlPanel() {
     setRunTarget(target);
     const code = target === "input" ? input : result.output;
     setExecution({ status: "running", label: `Executing ${target}…` });
+    setProgress({ phase: "Starting", pct: 5 });
     setTestResults(null);
     try {
       const fixtures = parseFixtures();
       if (fixturesText.trim() && !fixtures) {
         setExecution({ status: "error", label: "Bad fixtures JSON", error: fixturesError ?? "" });
+        setProgress(null);
         return;
       }
-      const ran = await runSqlLocal(code, fixtures);
+      const ran = await runSqlLocal(code, fixtures, (p) => setProgress(p));
       setExecution(ran);
       if (specs && specs.length) setTestResults(runTests(specs, ran));
     } catch (e: unknown) {
@@ -1720,6 +1770,9 @@ function SqlPanel() {
         label: "Execution failed",
         error: e instanceof Error ? e.message : String(e),
       });
+    } finally {
+      // brief delay so users can see the 100% tick
+      setTimeout(() => setProgress(null), 400);
     }
   }
 
@@ -1914,6 +1967,23 @@ function SqlPanel() {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {progress && (
+          <div className="border-t border-primary/30 bg-primary/5 px-4 py-2 flex items-center gap-3">
+            <div className="text-[10px] uppercase tracking-widest text-primary font-bold whitespace-nowrap">
+              ▸ {progress.phase}
+            </div>
+            <div className="flex-1 h-1.5 rounded-full bg-secondary overflow-hidden">
+              <div
+                className="h-full bg-primary transition-all duration-200 ease-out"
+                style={{ width: `${progress.pct}%` }}
+              />
+            </div>
+            <div className="text-[10px] font-mono text-muted-foreground whitespace-nowrap">
+              {progress.detail ? `${progress.detail} · ` : ""}{progress.pct}%
+            </div>
           </div>
         )}
 
