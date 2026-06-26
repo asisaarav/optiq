@@ -1214,12 +1214,27 @@ function buildSmartFixtures(query: string): Record<string, Record<string, unknow
       // Make ~80% of rows satisfy each predicate so query returns data
       for (const p of preds) {
         if (Math.random() > 0.2) {
+          const isDateStr =
+            typeof p.val === "string" && /^\d{4}-\d{2}-\d{2}/.test(p.val as string);
           if (p.op === "=") r[p.col] = p.val;
-          else if (p.op === ">" || p.op === ">=")
-            r[p.col] = typeof p.val === "number" ? (p.val as number) + i + 1 : p.val;
-          else if (p.op === "<" || p.op === "<=")
-            r[p.col] = typeof p.val === "number" ? Math.max(0, (p.val as number) - i - 1) : p.val;
-          else if (p.op === "LIKE" && typeof p.val === "string")
+          else if (p.op === ">" || p.op === ">=") {
+            if (typeof p.val === "number") r[p.col] = (p.val as number) + i + 1;
+            else if (isDateStr) {
+              const base = new Date(p.val as string).getTime();
+              r[p.col] = new Date(base + (i + 1) * 86400000 * 3)
+                .toISOString()
+                .slice(0, 10);
+            } else r[p.col] = p.val;
+          } else if (p.op === "<" || p.op === "<=") {
+            if (typeof p.val === "number")
+              r[p.col] = Math.max(0, (p.val as number) - i - 1);
+            else if (isDateStr) {
+              const base = new Date(p.val as string).getTime();
+              r[p.col] = new Date(base - (i + 1) * 86400000 * 3)
+                .toISOString()
+                .slice(0, 10);
+            } else r[p.col] = p.val;
+          } else if (p.op === "LIKE" && typeof p.val === "string")
             r[p.col] = p.val.replace(/%/g, `x${i}`);
         }
       }
