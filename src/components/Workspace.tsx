@@ -2133,6 +2133,10 @@ function PySparkPanel() {
   const liveDiagnostics = useMemo(() => validate(input, "PYSPARK"), [input]);
   const ai = useAiOptimizer();
   const plan = useMemo(() => buildPySparkPlan(result.output || input), [result.output, input]);
+  useEffect(() => {
+    const id = setTimeout(() => setResult(optimize(input, "PYSPARK")), 200);
+    return () => clearTimeout(id);
+  }, [input]);
 
   return (
     <div className="grid lg:grid-cols-[1fr_320px] gap-6">
