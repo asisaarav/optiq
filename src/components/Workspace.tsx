@@ -2033,22 +2033,6 @@ function PythonPanel() {
           }
           right={
             <>
-              <select
-                aria-label="Run target"
-                value={runTarget}
-                onChange={(e) => setRunTarget(e.target.value as "input" | "output")}
-                className="px-2 py-1 bg-secondary rounded border border-border text-xs font-mono"
-              >
-                <option value="output">Run optimized</option>
-                <option value="input">Run input</option>
-              </select>
-              <button
-                onClick={run}
-                disabled={running !== "idle"}
-                className="text-xs bg-secondary border border-border px-3 py-1 rounded hover:border-primary disabled:opacity-50"
-              >
-                {running === "loading" ? "Loading…" : running === "running" ? "Running…" : "▶ Run"}
-              </button>
               <button
                 onClick={() => downloadText("optimized.py", result.output)}
                 className="text-xs bg-secondary px-3 py-1 rounded border border-border hover:border-primary"
