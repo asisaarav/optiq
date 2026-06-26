@@ -358,8 +358,15 @@ function validateSql(code: string): Diagnostic[] {
       });
   }
 
-  // Stranded operators / commas
-  if (/,\s*(FROM|WHERE|GROUP|ORDER|HAVING|;|$)/im.test(stripped))
+  // Stranded operators / commas — comma immediately before a clause keyword,
+  // a semicolon, or the very end of input. We do NOT use the /m flag so `$`
+  // only matches end-of-string, otherwise `col,\n  next_col` would false-flag.
+  if (
+    /,\s*(?:FROM|WHERE|GROUP\s+BY|ORDER\s+BY|HAVING|LIMIT|OFFSET|UNION|INTERSECT|EXCEPT)\b/i.test(
+      stripped,
+    ) ||
+    /,\s*(?:;|$)/.test(stripped.replace(/;\s*$/, ";"))
+  )
     diags.push({ severity: "error", message: "Trailing comma before clause" });
   if (/\b(AND|OR)\b\s*(?:;|$)/im.test(stripped))
     diags.push({ severity: "error", message: "Boolean operator with no right-hand expression" });
