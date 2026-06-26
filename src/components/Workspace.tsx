@@ -1382,12 +1382,14 @@ function CodeOutput({
   html,
   speedup,
   changes,
+  headerRight,
 }: {
   html: string;
   speedup?: number;
   changes?: Change[];
+  headerRight?: React.ReactNode;
 }) {
-  const summary = (changes ?? []).slice(0, 2);
+  const all = changes ?? [];
   const emote =
     speedup === undefined
       ? null
@@ -1405,28 +1407,34 @@ function CodeOutput({
           Optimized Output
           <span className="size-1.5 rounded-full bg-primary animate-pulse" />
         </div>
-        {speedup !== undefined && emote && (
-          <div
-            className="group flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-2.5 py-1 transition-all hover:bg-primary/10 hover:scale-[1.02]"
-            title={`${emote.mood} — estimated speedup vs. input`}
-          >
-            <span className="text-base leading-none transition-transform group-hover:scale-125 group-hover:-rotate-6">
-              {emote.face}
-            </span>
-            <div className="flex items-baseline gap-1">
-              <span className={`font-mono font-bold text-sm ${emote.tone}`}>
-                {speedup.toFixed(0)}%
+        <div className="flex items-center gap-2">
+          {speedup !== undefined && emote && (
+            <div
+              className="group flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-2.5 py-1 transition-all hover:bg-primary/10 hover:scale-[1.02]"
+              title={`${emote.mood} — estimated speedup vs. input`}
+            >
+              <span className="text-base leading-none transition-transform group-hover:scale-125 group-hover:-rotate-6">
+                {emote.face}
               </span>
-              <span className="text-[9px] uppercase tracking-wider text-muted-foreground">
-                est. speedup
-              </span>
+              <div className="flex items-baseline gap-1">
+                <span className={`font-mono font-bold text-sm ${emote.tone}`}>
+                  {speedup.toFixed(0)}%
+                </span>
+                <span className="text-[9px] uppercase tracking-wider text-muted-foreground">
+                  est. speedup
+                </span>
+              </div>
             </div>
-          </div>
-        )}
+          )}
+          {headerRight}
+        </div>
       </div>
-      {summary.length > 0 && (
-        <div className="mb-3 rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-[11px] leading-snug text-foreground/90 space-y-1">
-          {summary.map((c, i) => (
+      {all.length > 0 && (
+        <div className="mb-3 rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-[11px] leading-snug text-foreground/90 space-y-1.5">
+          <div className="text-[9px] uppercase tracking-widest text-primary/80 font-bold">
+            Applied changes · {all.length}
+          </div>
+          {all.map((c, i) => (
             <div key={i} className="flex gap-2">
               <span className="text-primary/70 select-none">▸</span>
               <div className="min-w-0">
