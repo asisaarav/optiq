@@ -1741,6 +1741,12 @@ function PythonPanel() {
                 {running === "loading" ? "Loading…" : running === "running" ? "Running…" : "▶ Run"}
               </button>
               <button
+                onClick={() => downloadText("optimized.py", result.output)}
+                className="text-xs bg-secondary px-3 py-1 rounded border border-border hover:border-primary"
+              >
+                ⬇ .py
+              </button>
+              <button
                 onClick={() => {
                   navigator.clipboard?.writeText(result.output);
                   setCopied(true);
