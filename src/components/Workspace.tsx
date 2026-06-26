@@ -828,6 +828,45 @@ function optimizeSql(input: string, engine: SqlEngine): Optimization {
     });
   }
   const realChanged = normalizeForCompare(output) !== normalizeForCompare(input);
+
+  // ── Business-logic safety net ────────────────────────────────────────────
+  // Any literal (string / number) that appeared in the input MUST still appear
+  // in the optimized output. If a rule accidentally changed a value (e.g.
+  // 'active' → 1 or '2023-01-01' → 0), throw the rewrite away and surface a
+  // warning instead of silently shipping wrong logic.
+  const literalsOf = (s: string) => {
+    const lits = new Set<string>();
+    const stringRe = /'((?:[^'\\]|\\.)*)'/g;
+    let m: RegExpExecArray | null;
+    while ((m = stringRe.exec(s))) lits.add(`'${m[1]}'`);
+    const numRe = /(?<![A-Za-z_])-?\d+(?:\.\d+)?/g;
+    while ((m = numRe.exec(s.replace(stringRe, "")))) lits.add(m[0]);
+    return lits;
+  };
+  const inLits = literalsOf(input);
+  const outLits = literalsOf(output);
+  const missing = [...inLits].filter((l) => !outLits.has(l));
+  if (missing.length) {
+    return {
+      output: input.trim(),
+      speedup: 0,
+      changes: [
+        {
+          title: "Rewrite blocked — business logic at risk",
+          detail: `Optimization would change literal(s) ${missing.join(", ")}. Reverting to original query.`,
+          highlight: true,
+        },
+      ],
+      diagnostics: [
+        ...diagnostics,
+        {
+          severity: "warn",
+          message: `Safety guard: literals ${missing.join(", ")} were dropped by a rule — rewrite rejected.`,
+        },
+      ],
+    };
+  }
+
   if (changes.length === 0 || !realChanged) {
     return {
       output,
