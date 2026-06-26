@@ -1970,6 +1970,23 @@ function SqlPanel() {
           </div>
         )}
 
+        {progress && (
+          <div className="border-t border-primary/30 bg-primary/5 px-4 py-2 flex items-center gap-3">
+            <div className="text-[10px] uppercase tracking-widest text-primary font-bold whitespace-nowrap">
+              ▸ {progress.phase}
+            </div>
+            <div className="flex-1 h-1.5 rounded-full bg-secondary overflow-hidden">
+              <div
+                className="h-full bg-primary transition-all duration-200 ease-out"
+                style={{ width: `${progress.pct}%` }}
+              />
+            </div>
+            <div className="text-[10px] font-mono text-muted-foreground whitespace-nowrap">
+              {progress.detail ? `${progress.detail} · ` : ""}{progress.pct}%
+            </div>
+          </div>
+        )}
+
         <div className="grid md:grid-cols-2 h-[480px] font-mono text-sm leading-relaxed overflow-hidden">
           <div className="p-6 border-r border-border overflow-auto bg-surface-2/40">
             <div className="mb-3 flex items-center justify-between gap-2">
