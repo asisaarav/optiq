@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ENGINE_TIPS, type Tip, type TipCategory, type TipsKey } from "@/lib/engineTips";
+import { OPEN_DATASETS, loadDataset, buildSampleQuery, type OpenDataset } from "@/lib/openDatasets";
 
 type Mode = "SQL" | "PYTHON" | "PYSPARK" | "DATA";
 
@@ -1498,6 +1499,9 @@ function SqlPanel() {
   const [copied, setCopied] = useState(false);
   const [showSource, setShowSource] = useState(false);
   const [showTests, setShowTests] = useState(false);
+  const [showDatasets, setShowDatasets] = useState(false);
+  const [datasetStatus, setDatasetStatus] = useState<string | null>(null);
+  const [loadingDataset, setLoadingDataset] = useState<string | null>(null);
   const [fixturesText, setFixturesText] = useState("");
   const [fixturesError, setFixturesError] = useState<string | null>(null);
   const [testsText, setTestsText] = useState(
@@ -1524,6 +1528,23 @@ function SqlPanel() {
       return undefined;
     }
   }
+
+  async function pickDataset(ds: OpenDataset) {
+    setLoadingDataset(ds.id);
+    setDatasetStatus(`Fetching ${ds.name}…`);
+    try {
+      const { table, rows } = await loadDataset(ds);
+      setFixturesText(JSON.stringify({ [table]: rows }, null, 2));
+      setInput(buildSampleQuery(ds, rows[0]));
+      setShowSource(true);
+      setDatasetStatus(`✓ Loaded ${rows.length.toLocaleString()} rows into "${table}"`);
+    } catch (e) {
+      setDatasetStatus(`✗ ${e instanceof Error ? e.message : "Failed to load"}`);
+    } finally {
+      setLoadingDataset(null);
+    }
+  }
+
 
   async function run(specs?: TestSpec[]) {
     const code = runTarget === "input" ? input : result.output;
@@ -1585,6 +1606,13 @@ function SqlPanel() {
           right={
             <>
               <button
+                onClick={() => setShowDatasets((v) => !v)}
+                className={`text-xs px-2 py-1 rounded border ${showDatasets ? "border-primary text-primary" : "border-border text-muted-foreground hover:text-foreground"}`}
+                title="Load an open dataset (Titanic, Iris, Diamonds, etc.)"
+              >
+                {showDatasets ? "− Dataset" : "+ Dataset"}
+              </button>
+              <button
                 onClick={() => setShowSource((v) => !v)}
                 className={`text-xs px-2 py-1 rounded border ${showSource ? "border-primary text-primary" : "border-border text-muted-foreground hover:text-foreground"}`}
                 title="Provide custom schema / sample data"
@@ -1634,6 +1662,44 @@ function SqlPanel() {
           }
         />
         <DiagnosticsBar diagnostics={liveDiagnostics} />
+
+        {showDatasets && (
+          <div className="px-4 py-3 border-b border-border bg-surface-2/40 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                Open datasets · cached in browser · CORS-friendly public CDNs
+              </div>
+              {datasetStatus && (
+                <div className="text-[10px] font-mono text-muted-foreground">{datasetStatus}</div>
+              )}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-72 overflow-y-auto">
+              {OPEN_DATASETS.map((ds) => (
+                <button
+                  key={ds.id}
+                  onClick={() => pickDataset(ds)}
+                  disabled={loadingDataset !== null}
+                  className="text-left p-2 rounded border border-border bg-secondary/40 hover:border-primary transition disabled:opacity-50"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-xs font-bold text-foreground truncate">{ds.name}</div>
+                    <div className="text-[9px] text-muted-foreground font-mono shrink-0">
+                      {loadingDataset === ds.id ? "…" : `${ds.rows.toLocaleString()} rows`}
+                    </div>
+                  </div>
+                  <div className="text-[10px] text-muted-foreground mt-0.5 line-clamp-2">{ds.description}</div>
+                  <div className="text-[9px] mt-1 flex gap-2 text-muted-foreground/70 font-mono">
+                    <span>{ds.domain}</span>
+                    <span>·</span>
+                    <span>table: {ds.table}</span>
+                    <span>·</span>
+                    <span>{ds.license}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {showSource && (
           <div className="px-4 py-3 border-b border-border bg-surface-2/40 space-y-2">
