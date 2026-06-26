@@ -2268,7 +2268,7 @@ function PySparkPanel() {
         )}
       </div>
       <div className="flex flex-col gap-4">
-        <ChangesPanel changes={result.changes} />
+        
         <TipsPanel engineKey="PYSPARK" />
       </div>
     </div>
