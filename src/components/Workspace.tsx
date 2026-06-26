@@ -176,7 +176,10 @@ function escapeHtml(s: string) {
 function highlight(code: string, kind: "sql" | "py") {
   const escaped = escapeHtml(code);
   const tokens: string[] = [];
-  const PH = (i: number) => `\u0000${i}\u0000`;
+  // Placeholder uses non-digit sentinels (\u0001T…E\u0001) so the numbers regex
+  // below can't accidentally match the index and clobber the original token —
+  // that bug was rendering 'active' as `1` and '2023-01-01' as `0`.
+  const PH = (i: number) => `\u0001T${i}E\u0001`;
   const stash = (s: string) => {
     tokens.push(s);
     return PH(tokens.length - 1);
@@ -212,11 +215,8 @@ function highlight(code: string, kind: "sql" | "py") {
   );
 
   // restore tokens (handle nesting by repeating)
-  for (let i = 0; i < 3; i++) {
-    out = out.replace(
-      new RegExp(`${String.fromCharCode(0)}(\\d+)${String.fromCharCode(0)}`, "g"),
-      (_m, n) => tokens[+n],
-    );
+  for (let i = 0; i < 4; i++) {
+    out = out.replace(/\u0001T(\d+)E\u0001/g, (_m, n) => tokens[+n] ?? "");
   }
   return out;
 }
