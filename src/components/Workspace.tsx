@@ -1155,6 +1155,7 @@ type PyodideRuntime = {
   setStdout: (options: { batched: (text: string) => void }) => void;
   setStderr: (options: { batched: (text: string) => void }) => void;
   runPythonAsync: (code: string) => Promise<unknown>;
+  loadPackagesFromImports?: (code: string) => Promise<void>;
 };
 
 type PyodideLoader = (options: { indexURL: string }) => Promise<PyodideRuntime>;
