@@ -1529,6 +1529,23 @@ function SqlPanel() {
     }
   }
 
+  async function pickDataset(ds: OpenDataset) {
+    setLoadingDataset(ds.id);
+    setDatasetStatus(`Fetching ${ds.name}…`);
+    try {
+      const { table, rows } = await loadDataset(ds);
+      setFixturesText(JSON.stringify({ [table]: rows }, null, 2));
+      setInput(buildSampleQuery(ds, rows[0]));
+      setShowSource(true);
+      setDatasetStatus(`✓ Loaded ${rows.length.toLocaleString()} rows into "${table}"`);
+    } catch (e) {
+      setDatasetStatus(`✗ ${e instanceof Error ? e.message : "Failed to load"}`);
+    } finally {
+      setLoadingDataset(null);
+    }
+  }
+
+
   async function run(specs?: TestSpec[]) {
     const code = runTarget === "input" ? input : result.output;
     setExecution({ status: "running", label: "Executing query…" });
