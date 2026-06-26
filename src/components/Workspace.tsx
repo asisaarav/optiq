@@ -1214,12 +1214,27 @@ function buildSmartFixtures(query: string): Record<string, Record<string, unknow
       // Make ~80% of rows satisfy each predicate so query returns data
       for (const p of preds) {
         if (Math.random() > 0.2) {
+          const isDateStr =
+            typeof p.val === "string" && /^\d{4}-\d{2}-\d{2}/.test(p.val as string);
           if (p.op === "=") r[p.col] = p.val;
-          else if (p.op === ">" || p.op === ">=")
-            r[p.col] = typeof p.val === "number" ? (p.val as number) + i + 1 : p.val;
-          else if (p.op === "<" || p.op === "<=")
-            r[p.col] = typeof p.val === "number" ? Math.max(0, (p.val as number) - i - 1) : p.val;
-          else if (p.op === "LIKE" && typeof p.val === "string")
+          else if (p.op === ">" || p.op === ">=") {
+            if (typeof p.val === "number") r[p.col] = (p.val as number) + i + 1;
+            else if (isDateStr) {
+              const base = new Date(p.val as string).getTime();
+              r[p.col] = new Date(base + (i + 1) * 86400000 * 3)
+                .toISOString()
+                .slice(0, 10);
+            } else r[p.col] = p.val;
+          } else if (p.op === "<" || p.op === "<=") {
+            if (typeof p.val === "number")
+              r[p.col] = Math.max(0, (p.val as number) - i - 1);
+            else if (isDateStr) {
+              const base = new Date(p.val as string).getTime();
+              r[p.col] = new Date(base - (i + 1) * 86400000 * 3)
+                .toISOString()
+                .slice(0, 10);
+            } else r[p.col] = p.val;
+          } else if (p.op === "LIKE" && typeof p.val === "string")
             r[p.col] = p.val.replace(/%/g, `x${i}`);
         }
       }
@@ -1635,6 +1650,13 @@ function SqlPanel() {
   const liveDiagnostics = useMemo(() => validate(input, engine), [input, engine]);
   const ai = useAiOptimizer();
 
+  // Keep optimized output in sync with the current input so the right pane
+  // never shows a stale rewrite from a previous query/engine.
+  useEffect(() => {
+    const id = setTimeout(() => setResult(optimize(input, engine)), 200);
+    return () => clearTimeout(id);
+  }, [input, engine]);
+
   function changeEngine(e: SqlEngine) {
     setEngine(e);
     setInput(SQL_SAMPLES[e]);
@@ -1941,6 +1963,10 @@ function PythonPanel() {
   const html = useMemo(() => highlight(result.output, "py"), [result.output]);
   const liveDiagnostics = useMemo(() => validate(input, "PYTHON"), [input]);
   const ai = useAiOptimizer();
+  useEffect(() => {
+    const id = setTimeout(() => setResult(optimize(input, "PYTHON")), 200);
+    return () => clearTimeout(id);
+  }, [input]);
 
   async function run() {
     const code = runTarget === "input" ? input : result.output;
@@ -2122,6 +2148,10 @@ function PySparkPanel() {
   const liveDiagnostics = useMemo(() => validate(input, "PYSPARK"), [input]);
   const ai = useAiOptimizer();
   const plan = useMemo(() => buildPySparkPlan(result.output || input), [result.output, input]);
+  useEffect(() => {
+    const id = setTimeout(() => setResult(optimize(input, "PYSPARK")), 200);
+    return () => clearTimeout(id);
+  }, [input]);
 
   return (
     <div className="grid lg:grid-cols-[1fr_320px] gap-6">
