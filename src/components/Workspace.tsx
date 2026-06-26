@@ -1611,6 +1611,7 @@ function SqlPanel() {
   const [testResults, setTestResults] = useState<TestResult[] | null>(null);
   const html = useMemo(() => highlight(result.output, "sql"), [result.output]);
   const liveDiagnostics = useMemo(() => validate(input, engine), [input, engine]);
+  const ai = useAiOptimizer();
 
   function changeEngine(e: SqlEngine) {
     setEngine(e);
