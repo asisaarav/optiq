@@ -1090,7 +1090,10 @@ function normalizeSqlForRunner(query: string) {
 // ---- Intelligent fixture builder: parses tables/aliases/predicates from query ----
 
 type AlSqlDb = { exec: (sql: string) => unknown; tables: Record<string, { data: unknown[] }> };
-type AlSql = { Database: new (name: string) => AlSqlDb };
+type AlSql = {
+  Database: new (name: string) => AlSqlDb;
+  tables: Record<string, { data: unknown[] }>;
+};
 
 function literalValue(raw: string): unknown {
   if (/^'(.*)'$/.test(raw)) return raw.slice(1, -1);
@@ -1295,8 +1298,8 @@ async function runSqlLocal(
 
   tick("Loading SQL engine", 25);
   const alasqlModule = await import("alasql");
-  const alasql = ((alasqlModule as { default?: unknown }).default ?? alasqlModule) as AlSql;
-  const db = new alasql.Database(`optiq_${Date.now()}`);
+  const alasql = ((alasqlModule as { default?: unknown }).default ?? alasqlModule) as AlSql &
+    ((sql: string) => unknown);
 
   let fixtures: Record<string, Record<string, unknown>[]>;
   let fromCache = false;
@@ -1317,12 +1320,18 @@ async function runSqlLocal(
   await yieldUI();
 
   tick("Seeding in-memory DB", 75);
+  // Use alasql's default database so SELECT resolves tables reliably.
+  // Drop any leftover tables from a previous run, then recreate + load rows.
+  const run = alasql as unknown as (sql: string) => unknown;
+  Object.keys(fixtures).forEach((table) => {
+    try { run(`DROP TABLE IF EXISTS ${table}`); } catch { /* noop */ }
+  });
   Object.entries(fixtures).forEach(([table, rows]) => {
     try {
-      db.exec(`CREATE TABLE ${table}`);
-      db.tables[table].data = rows.map((row) => ({ ...row }));
+      run(`CREATE TABLE ${table}`);
+      alasql.tables[table].data = rows.map((row) => ({ ...row }));
     } catch {
-      /* ignore duplicate */
+      /* ignore */
     }
   });
   await yieldUI();
@@ -1331,7 +1340,7 @@ async function runSqlLocal(
   const normalized = normalizeSqlForRunner(query);
   let result: unknown;
   try {
-    result = db.exec(normalized);
+    result = run(normalized);
   } catch (e) {
     tick("Failed", 100);
     return {
