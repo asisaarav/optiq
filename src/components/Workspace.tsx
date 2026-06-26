@@ -1689,6 +1689,7 @@ function SqlPanel() {
   );
   const [runTarget, setRunTarget] = useState<"input" | "output">("input");
   const [execution, setExecution] = useState<ExecutionResult>({ status: "idle", label: "Ready" });
+  const [progress, setProgress] = useState<RunPhase | null>(null);
   const [copied, setCopied] = useState(false);
   const [showSource, setShowSource] = useState(false);
   const [showTests, setShowTests] = useState(false);
