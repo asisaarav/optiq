@@ -1856,6 +1856,7 @@ function SqlPanel() {
               >
                 {showTests ? "− Tests" : "+ Tests"}
               </button>
+              <FormatButton onClick={() => setInput((v) => formatSql(v))} />
               <button
                 onClick={() => {
                   navigator.clipboard?.writeText(result.output);
@@ -2131,6 +2132,7 @@ function PythonPanel() {
               >
                 ⬇ .py
               </button>
+              <FormatButton onClick={() => setInput((v) => formatPython(v))} />
               <button
                 onClick={() => {
                   navigator.clipboard?.writeText(result.output);
@@ -2291,6 +2293,7 @@ function PySparkPanel() {
               >
                 ⬇ .py
               </button>
+              <FormatButton onClick={() => setInput((v) => formatPySpark(v))} />
               <button
                 onClick={() => {
                   navigator.clipboard?.writeText(result.output);
