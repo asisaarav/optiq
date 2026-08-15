@@ -16,7 +16,7 @@ export const aiOptimize = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<AiResult> => {
     const key = process.env.LOVABLE_API_KEY;
     if (!key) {
-      throw new Error("AI Gateway not configured (LOVABLE_API_KEY missing).");
+      throw new Error("The AI optimizer is not configured. Contact your administrator.");
     }
 
     const model = "google/gemini-3-flash-preview";

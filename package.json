@@ -1,5 +1,8 @@
 {
-  "name": "tanstack_start_ts",
+  "name": "optiq",
+  "description": "OPTIQ — query and script optimizer for SQL, Python and PySpark workloads.",
+  "author": "Ashish Kumar",
+  "license": "UNLICENSED",
   "private": true,
   "sideEffects": false,
   "type": "module",
