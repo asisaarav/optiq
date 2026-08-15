@@ -3,6 +3,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { ENGINE_TIPS, type Tip, type TipCategory, type TipsKey } from "@/lib/engineTips";
 import { OPEN_DATASETS, loadDataset, buildSampleQuery, type OpenDataset } from "@/lib/openDatasets";
 import { aiOptimize } from "@/lib/aiOptimize.functions";
+import { formatSql, formatPython, formatPySpark, formatJson, sortJsonKeys } from "@/lib/formatters";
 
 function useAiOptimizer() {
   const fn = useServerFn(aiOptimize);
