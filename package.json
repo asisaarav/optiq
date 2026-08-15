@@ -70,6 +70,8 @@
   },
   "overrides": {
     "seroval": "^1.6.2",
-    "seroval-plugins": "^1.6.2"
+    "seroval-plugins": "^1.6.2",
+    "react-native-fs": "npm:empty-npm-package@1.0.0",
+    "undici": "^7.28.1"
   }
 }
