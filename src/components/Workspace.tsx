@@ -66,7 +66,19 @@ function AiBadge({
   );
 }
 
-type Mode = "SQL" | "PYTHON" | "PYSPARK" | "DATA";
+type Mode = "SQL" | "PYTHON" | "PYSPARK" | "DATA" | "JSON";
+
+function FormatButton({ onClick, label = "⌁ Beautify" }: { onClick: () => void; label?: string }) {
+  return (
+    <button
+      onClick={onClick}
+      className="text-xs bg-secondary px-3 py-1 rounded border border-border hover:border-primary hover:text-primary transition-colors"
+      title="Beautify / format the input code (whitespace only — logic untouched)"
+    >
+      {label}
+    </button>
+  );
+}
 
 const SQL_ENGINES = [
   "POSTGRESQL",
