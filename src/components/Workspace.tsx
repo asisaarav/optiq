@@ -3129,7 +3129,6 @@ export function Workspace() {
           {mode === "JSON" && <JsonPanel />}
         </div>
       </PanelBoundary>
-
     </div>
   );
 }
