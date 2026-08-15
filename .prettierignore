@@ -1,8 +1,7 @@
-node_modules
 dist
 .output
-.vinxi
-pnpm-lock.yaml
+.wrangler
+node_modules
 package-lock.json
-bun.lock
-routeTree.gen.ts
+src/routeTree.gen.ts
+src/integrations/supabase/types.ts

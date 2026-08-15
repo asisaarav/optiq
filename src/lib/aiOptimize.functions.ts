@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { SYSTEM, safetyCheck, AiInput } from "./aiOptimize.server";
+import { SYSTEM, safetyCheck, AiInput, resolveAiConfig } from "./aiOptimize.server";
 
 type Change = { title: string; detail: string; highlight?: boolean };
 type AiResult = {
@@ -14,24 +14,25 @@ type AiResult = {
 export const aiOptimize = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => AiInput.parse(d))
   .handler(async ({ data }): Promise<AiResult> => {
-    const key = process.env.LOVABLE_API_KEY;
-    if (!key) {
+    const cfg = resolveAiConfig();
+    if (!cfg) {
       throw new Error("The AI optimizer is not configured. Contact your administrator.");
     }
-
-    const model = "google/gemini-3-flash-preview";
+    const { apiKey, baseUrl, model } = cfg;
     const userMsg = `Engine: ${data.engine}\n\nCode to optimize:\n\`\`\`\n${data.code}\n\`\`\``;
 
-    const callGateway = async (): Promise<string> => {
-      const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    // OpenAI-compatible chat completions. Works with OpenAI, Gemini's OpenAI endpoint,
+    // OpenRouter, Groq, Together, or a self-hosted gateway - controlled purely by env.
+    const callProvider = async (): Promise<string> => {
+      const res = await fetch(`${baseUrl}/chat/completions`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Lovable-API-Key": key,
-          "X-Lovable-AIG-SDK": "custom-fetch",
+          Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
           model,
+          temperature: 0.1,
           messages: [
             { role: "system", content: SYSTEM },
             { role: "user", content: userMsg },
@@ -44,9 +45,11 @@ export const aiOptimize = createServerFn({ method: "POST" })
       if (!res.ok) {
         const text = await res.text();
         if (res.status === 429) throw new Error("RETRYABLE:rate-limited");
-        if (res.status === 402) throw new Error("AI credits exhausted — top up workspace credits.");
-        if (res.status >= 500) throw new Error(`RETRYABLE:gateway-${res.status}`);
-        throw new Error(`AI Gateway error (${res.status}): ${text.slice(0, 200)}`);
+        if (res.status === 401 || res.status === 403)
+          throw new Error("AI provider rejected the API key. Check server configuration.");
+        if (res.status === 402) throw new Error("AI provider credits exhausted.");
+        if (res.status >= 500) throw new Error(`RETRYABLE:provider-${res.status}`);
+        throw new Error(`AI provider error (${res.status}): ${text.slice(0, 200)}`);
       }
 
       const json = (await res.json()) as { choices?: { message?: { content?: string } }[] };
@@ -62,7 +65,7 @@ export const aiOptimize = createServerFn({ method: "POST" })
     for (let attempt = 0; attempt < 3; attempt++) {
       if (attempt > 0) await new Promise((r) => setTimeout(r, 600 * attempt));
       try {
-        const raw = await callGateway();
+        const raw = await callProvider();
         const cleaned = raw.replace(/^\s*```(?:json)?/i, "").replace(/```\s*$/, "");
         const candidate = JSON.parse(cleaned) as Parsed;
         if (!(candidate.output ?? "").trim()) throw new Error("RETRYABLE:empty-output");

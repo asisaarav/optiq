@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
-import { lovable } from "@/integrations/lovable/index";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/useAuth";
 
 export const Route = createFileRoute("/auth")({
@@ -20,7 +20,6 @@ export const Route = createFileRoute("/auth")({
 function AuthPage() {
   const auth = useAuth();
   const navigate = useNavigate();
-  const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -34,18 +33,17 @@ function AuthPage() {
     setError(null);
     setLoading(true);
     try {
-      const result = await lovable.auth.signInWithOAuth("google", {
-        redirect_uri: window.location.origin,
+      const { error: oauthError } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: { redirectTo: window.location.origin },
       });
-      if (result.error) {
-        setError(result.error.message || "Sign-in failed. Please try again.");
+      if (oauthError) {
+        setError(oauthError.message || "Sign-in failed. Please try again.");
         setLoading(false);
         return;
       }
-      if (result.redirected) return; // browser is navigating
-      // Tokens set — go home
-      router.invalidate();
-      navigate({ to: "/", replace: true });
+      // Supabase redirects the browser to Google; on return, onAuthStateChange
+      // in useAuth() picks up the session and the effect above navigates home.
     } catch (e) {
       setError(e instanceof Error ? e.message : "Sign-in failed.");
       setLoading(false);

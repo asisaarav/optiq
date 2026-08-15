@@ -1,5 +1,25 @@
 import { z } from "zod";
 
+export type AiConfig = { apiKey: string; baseUrl: string; model: string };
+
+/**
+ * Server-only AI provider configuration.
+ *   AI_API_KEY   - required. Provider API key (never shipped to the browser).
+ *   AI_BASE_URL  - optional. OpenAI-compatible base URL. Default: https://api.openai.com/v1
+ *   AI_MODEL     - optional. Default: gpt-4o-mini
+ * Returns null when the optimizer is not configured so callers can fail gracefully.
+ */
+export function resolveAiConfig(): AiConfig | null {
+  const apiKey = process.env.AI_API_KEY?.trim();
+  if (!apiKey) return null;
+  const baseUrl = (process.env.AI_BASE_URL?.trim() || "https://api.openai.com/v1").replace(
+    /\/+$/,
+    "",
+  );
+  const model = process.env.AI_MODEL?.trim() || "gpt-4o-mini";
+  return { apiKey, baseUrl, model };
+}
+
 export const AiInput = z.object({
   engine: z.string().min(1).max(40),
   code: z.string().min(1).max(20000),
