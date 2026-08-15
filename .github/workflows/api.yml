@@ -1,0 +1,60 @@
+name: API (Go)
+
+on:
+  push:
+    branches: [main]
+    paths: ["services/api/**", ".github/workflows/api.yml"]
+  pull_request:
+    branches: [main]
+    paths: ["services/api/**", ".github/workflows/api.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: api-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: services/api
+
+jobs:
+  verify:
+    name: Vet, test, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with: { persist-credentials: false }
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache-dependency-path: services/api/go.sum
+      - name: Formatting
+        run: test -z "$(gofmt -l .)" || (gofmt -l .; exit 1)
+      - name: Vet
+        run: go vet ./...
+      - name: Test with race detector
+        run: go test ./... -race -count=1 -coverprofile=coverage.out
+      - name: Coverage gate (>= 75%)
+        run: |
+          pct=$(go tool cover -func=coverage.out | awk '/^total:/ {print substr($3, 1, length($3)-1)}')
+          echo "total coverage: $pct%"
+          awk -v p="$pct" 'BEGIN { exit (p >= 75) ? 0 : 1 }'
+      - name: Build
+        run: CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" ./...
+      - name: Fuzz smoke (30s)
+        run: go test ./internal/optimizer -run=Fuzz -fuzz=FuzzOptimize -fuzztime=30s
+
+  govulncheck:
+    name: Vulnerability scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with: { persist-credentials: false }
+      - uses: actions/setup-go@v5
+        with: { go-version: "1.25" }
+      - run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      - run: govulncheck ./...

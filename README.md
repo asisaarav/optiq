@@ -1,99 +1,75 @@
 # OPTIQ
 
-**Live optimizer for SQL, Python and PySpark.** Paste a slow query or script, get a
-production-safe rewrite with the reasoning behind every change, run it against an
-in-browser runtime, and generate test data on the fly.
+Live optimizer for SQL, Python and PySpark. Rewrites are engine-aware, explained,
+and verified against a business-logic guard before they are ever shown.
 
-Live: https://code-optimizer.instaluxe.in
+Production: https://code-optimizer.instaluxe.in
 
----
+## Repository layout
 
-## What it does
+```
+apps/web          Next.js 16 (App Router, React 19, Tailwind v4) - UI and BFF
+services/api      Go 1.25 HTTP service - rule engine, validators, safety guard
+.github/workflows CI per stack, Dependabot, CodeQL
+```
 
-| Workspace        | Capability                                                                                                                                                                                                                                                                                           |
-| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **SQL**          | 10 engines (PostgreSQL, MySQL, Oracle, PL/SQL, SQL Server, Snowflake, BigQuery, Redshift, Databricks SQL, ClickHouse). Rule-based rewrites + AI pass, live diagnostics, in-browser execution with auto-generated or user-supplied fixtures, assertion-style test cases, engine-specific tuning tips. |
-| **Python**       | Idiom and anti-pattern rewrites (comprehensions, `sum()`, `enumerate`, truthiness, `__main__` guard). Sandboxed Pyodide runtime in a Web Worker with a hard timeout.                                                                                                                                 |
-| **PySpark**      | Catalyst-aware static analysis: predicate pushdown, chained pipelines, `.collect()` / `.toPandas()` / UDF warnings, derived logical plan preview.                                                                                                                                                    |
-| **Data Builder** | Schema-driven synthetic data (16 field types) exported as JSON, CSV or SQL `INSERT`. Row count is hard-capped.                                                                                                                                                                                       |
-| **JSON**         | Beautify, minify, sort keys, validate with precise error location.                                                                                                                                                                                                                                   |
-| **Public API**   | `POST /api/public/v1/optimize` - schema-validated, size-capped, rate-limited.                                                                                                                                                                                                                        |
-
-### Safety guarantees
-
-Every rewrite (rule-based or AI) passes a **business-logic guard** before it is shown:
-literals must survive, join types cannot drift, `DISTINCT` cannot be introduced, and no
-column may be newly wrapped in a function. If a rewrite fails the guard the original is
-returned with the reason surfaced to the user. Nothing the user pastes is ever evaluated
-on the server or rendered as raw HTML.
-
----
+The browser never calls the Go service directly. Next.js Server Actions proxy
+every request, so the API stays private, CORS stays closed, and secrets remain
+server-side.
 
 ## Architecture
 
 ```
-Browser                                   Cloudflare Worker (TanStack Start SSR)
--------------------------------------     -----------------------------------------
-React 19 + TanStack Router                src/server.ts        security headers / CSP
-  Workspace (SQL/Py/PySpark/Data/JSON)    server functions     aiOptimize (server-only key)
-  Rule engine (pure TS)                   /api/public/v1/*     public optimize API
-  alasql (in-memory SQL)                  Supabase             auth (Google OAuth) + RLS
-  Pyodide in Web Worker (15s cap)         AI provider          any OpenAI-compatible endpoint
+Browser ──▶ Next.js (SSR + Server Actions) ──▶ Go API ──▶ optimizer rule engine
+                     │                              │
+                     └─ Pyodide / alasql            └─ stateless, horizontally scalable
+                        (client-side execution)
 ```
 
-- **Framework:** TanStack Start (React 19, SSR, server functions), Vite 7, Tailwind v4.
-- **Runtime target:** Cloudflare Workers via Nitro (`cloudflare-module` preset).
-- **Auth/DB:** Supabase (publishable key in the browser, service role only on the server).
-- **AI:** provider-agnostic. Set `AI_API_KEY`, optionally `AI_BASE_URL` / `AI_MODEL`.
+Heavy execution stays in the browser (WebAssembly Python, in-memory SQL) so user
+code never reaches a server. The Go service is pure CPU work with no database, no
+session state and no user data - it can be scaled or restarted freely.
 
----
-
-## Local development
+## Quick start
 
 ```sh
-git clone https://github.com/asisaarav/optiq.git
-cd optiq
-cp .env.example .env        # fill in Supabase + AI provider values
-npm install
-npm run dev                 # http://localhost:8080
+# backend
+cd services/api && make run          # :8080
+
+# frontend (separate shell)
+cd apps/web && cp .env.example .env.local && npm install && npm run dev   # :3000
 ```
 
-Useful scripts:
+## API
 
-| Script           | Purpose                                                    |
-| ---------------- | ---------------------------------------------------------- |
-| `npm run check`  | typecheck + lint + tests + production build (what CI runs) |
-| `npm test`       | vitest unit tests                                          |
-| `npm run build`  | production build to `dist/`                                |
-| `npm run deploy` | build and `wrangler deploy` to Cloudflare Workers          |
+| Method | Path            | Purpose                                     |
+| ------ | --------------- | ------------------------------------------- |
+| GET    | `/healthz`      | liveness                                    |
+| GET    | `/readyz`       | readiness plus version and commit           |
+| GET    | `/v1/engines`   | supported engines (the UI renders from this) |
+| POST   | `/v1/optimize`  | rewrite plus changes, diagnostics, speedup  |
+| POST   | `/v1/validate`  | diagnostics only                            |
 
----
+```sh
+curl -X POST localhost:8080/v1/optimize \
+  -H 'content-type: application/json' \
+  -d '{"engine":"mysql","code":"SELECT * FROM orders WHERE DATE(created_at) = '"'"'2024-01-01'"'"';"}'
+```
 
-## Deployment (Cloudflare Workers)
+Every response carries `X-Request-Id`; errors use one envelope
+(`{"error":{"code","message","request_id"}}`) so failures are traceable end to end.
 
-1. `wrangler login` (or set `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` as repo secrets).
-2. Add Worker secrets: `wrangler secret put AI_API_KEY`, `SUPABASE_URL`,
-   `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SERVICE_ROLE_KEY` (and `AI_BASE_URL` / `AI_MODEL` if not default).
-3. `npm run deploy`, or set the repo variable `DEPLOY_ENABLED=true` to let the `Deploy`
-   workflow ship every merge to `main`.
-4. Point your custom domain at the Worker (Cloudflare dashboard -> Workers -> Custom domains).
+## Engineering standards
 
-Google sign-in requires the Google provider enabled in the Supabase project
-(Authentication -> Providers -> Google) with `https://<your-domain>` as an allowed redirect URL.
-
----
-
-## Security
-
-See [SECURITY.md](./SECURITY.md) for the reporting policy and full posture. Highlights:
-
-- CSP, HSTS, COOP, frame and referrer policies on every HTML response.
-- All user input size-capped; Python and SQL run inside a sandboxed worker with a hard timeout.
-- Secrets live only in Worker environment variables; nothing sensitive is in the client bundle.
-- CI gates: typecheck, lint, format, unit tests, production build, `npm audit`, CodeQL.
-- Dependabot for npm and GitHub Actions.
-
----
+- **Tests gate merges.** Go: unit plus fuzz, race detector, 75% coverage floor.
+  Web: typecheck, lint, format, build, `npm audit`.
+- **Supply chain.** `govulncheck` on every backend change, Dependabot on Go, npm,
+  Docker and Actions, CodeQL on the repo.
+- **Runtime hardening.** Rate limiting, body caps, panic recovery, security
+  headers, strict CORS allow-list, graceful shutdown, structured JSON logs with
+  correlation IDs.
+- **Containers.** Distroless non-root image, static binary, no shell.
+- **Branch protection.** PR plus review plus green CI; linear history; no force pushes.
 
 ## License
 
