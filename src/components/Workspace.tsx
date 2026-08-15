@@ -3039,15 +3039,23 @@ function JsonPanel() {
           <div className="text-muted-foreground mb-3 text-[10px] uppercase tracking-widest">
             Input — JSON
           </div>
+          {cap.notice && (
+            <div role="status" className="mb-2 text-[11px] font-mono text-amber-200">
+              ⚠ {cap.notice}
+            </div>
+          )}
           <textarea
             value={input}
+            aria-label="JSON input editor"
+            maxLength={MAX_JSON_CHARS}
             onChange={(e) => {
-              setInput(e.target.value);
+              cap.apply(e.target.value, setInput);
               setError(null);
             }}
             spellCheck={false}
             className="w-full h-[260px] md:h-[calc(100%-1.5rem)] bg-transparent resize-none outline-none text-zinc-300 font-mono text-sm leading-relaxed"
           />
+
         </div>
         <div className="p-4 md:p-6 overflow-auto min-h-[300px] md:min-h-0">
           <div className="text-muted-foreground mb-3 text-[10px] uppercase tracking-widest">
