@@ -1,3 +1,10 @@
+import { z } from "zod";
+
+export const AiInput = z.object({
+  engine: z.string().min(1).max(40),
+  code: z.string().min(1).max(20000),
+});
+
 export const SYSTEM = `You are Optiq, a senior database & data-engineering expert.
 You optimize SQL / Python / PySpark code for a specific engine.
 

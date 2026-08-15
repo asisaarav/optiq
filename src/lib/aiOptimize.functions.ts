@@ -1,11 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { z } from "zod";
-import { SYSTEM, safetyCheck } from "./aiOptimize.server";
-
-const Input = z.object({
-  engine: z.string().min(1).max(40),
-  code: z.string().min(1).max(20000),
-});
+import { SYSTEM, safetyCheck, AiInput } from "./aiOptimize.server";
 
 type Change = { title: string; detail: string; highlight?: boolean };
 type AiResult = {
@@ -19,7 +13,7 @@ type AiResult = {
 
 
 export const aiOptimize = createServerFn({ method: "POST" })
-  .inputValidator((d: unknown) => Input.parse(d))
+  .inputValidator((d: unknown) => AiInput.parse(d))
   .handler(async ({ data }): Promise<AiResult> => {
     const key = process.env.LOVABLE_API_KEY;
     if (!key) {
@@ -113,11 +107,15 @@ export const aiOptimize = createServerFn({ method: "POST" })
       };
     }
 
+    const unchanged = output === data.code.trim();
     return {
       output,
       changes: Array.isArray(parsed.changes) ? parsed.changes.slice(0, 8) : [],
-      speedup:
-        typeof parsed.speedup === "number" ? Math.max(0, Math.min(90, parsed.speedup)) : 0,
+      speedup: unchanged
+        ? 0
+        : typeof parsed.speedup === "number"
+          ? Math.max(0, Math.min(90, parsed.speedup))
+          : 0,
       notes: parsed.notes,
       model,
     };
