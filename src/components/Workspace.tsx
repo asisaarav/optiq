@@ -3,6 +3,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { ENGINE_TIPS, type Tip, type TipCategory, type TipsKey } from "@/lib/engineTips";
 import { OPEN_DATASETS, loadDataset, buildSampleQuery, type OpenDataset } from "@/lib/openDatasets";
 import { aiOptimize } from "@/lib/aiOptimize.functions";
+import { formatSql, formatPython, formatPySpark, formatJson, sortJsonKeys } from "@/lib/formatters";
 
 function useAiOptimizer() {
   const fn = useServerFn(aiOptimize);
@@ -65,7 +66,19 @@ function AiBadge({
   );
 }
 
-type Mode = "SQL" | "PYTHON" | "PYSPARK" | "DATA";
+type Mode = "SQL" | "PYTHON" | "PYSPARK" | "DATA" | "JSON";
+
+function FormatButton({ onClick, label = "⌁ Beautify" }: { onClick: () => void; label?: string }) {
+  return (
+    <button
+      onClick={onClick}
+      className="text-xs bg-secondary px-3 py-1 rounded border border-border hover:border-primary hover:text-primary transition-colors"
+      title="Beautify / format the input code (whitespace only — logic untouched)"
+    >
+      {label}
+    </button>
+  );
+}
 
 const SQL_ENGINES = [
   "POSTGRESQL",
@@ -1843,6 +1856,7 @@ function SqlPanel() {
               >
                 {showTests ? "− Tests" : "+ Tests"}
               </button>
+              <FormatButton onClick={() => setInput((v) => formatSql(v))} />
               <button
                 onClick={() => {
                   navigator.clipboard?.writeText(result.output);
@@ -2118,6 +2132,7 @@ function PythonPanel() {
               >
                 ⬇ .py
               </button>
+              <FormatButton onClick={() => setInput((v) => formatPython(v))} />
               <button
                 onClick={() => {
                   navigator.clipboard?.writeText(result.output);
@@ -2278,6 +2293,7 @@ function PySparkPanel() {
               >
                 ⬇ .py
               </button>
+              <FormatButton onClick={() => setInput((v) => formatPySpark(v))} />
               <button
                 onClick={() => {
                   navigator.clipboard?.writeText(result.output);
@@ -2760,6 +2776,129 @@ function DataBuilderPanel() {
   );
 }
 
+// ------------------------- JSON beautifier -------------------------
+
+const JSON_SAMPLE = `{"pipeline":"daily_orders","engine":"databricks","steps":[{"op":"read","path":"s3://lake/orders","format":"delta"},{"op":"filter","expr":"order_date >= '2024-01-01'"},{"op":"aggregate","by":["region"],"metrics":{"revenue":"sum(amount)"}}],"retries":3,"enabled":true}`;
+
+function JsonPanel() {
+  const [input, setInput] = useState(JSON_SAMPLE);
+  const [output, setOutput] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [indent, setIndent] = useState(2);
+  const [copied, setCopied] = useState(false);
+
+  function apply(mode: "pretty" | "minify", sortKeys = false) {
+    const source = sortKeys
+      ? (() => {
+          const parsed = formatJson(input, "pretty", indent);
+          if (!parsed.ok) return input;
+          return JSON.stringify(sortJsonKeys(JSON.parse(input)));
+        })()
+      : input;
+    const res = formatJson(source, mode, indent);
+    if (res.ok) {
+      setOutput(res.text);
+      setError(null);
+    } else {
+      setOutput("");
+      setError(res.error);
+    }
+  }
+
+  const stats = useMemo(() => {
+    const bytes = new TextEncoder().encode(output || input).length;
+    return `${(output || input).split("\n").length} lines · ${bytes.toLocaleString()} B`;
+  }, [output, input]);
+
+  return (
+    <div className="rounded-xl border border-border bg-surface/60 overflow-hidden">
+      <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-border bg-surface-2/50">
+        <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+          JSON beautifier · formatter · validator
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="text-[10px] uppercase tracking-widest text-muted-foreground">
+            Indent
+            <select
+              value={indent}
+              onChange={(e) => setIndent(Number(e.target.value))}
+              className="ml-2 bg-secondary border border-border rounded px-2 py-1 text-xs font-mono text-foreground"
+            >
+              <option value={2}>2</option>
+              <option value={4}>4</option>
+              <option value={8}>8</option>
+            </select>
+          </label>
+          <button
+            onClick={() => apply("pretty", true)}
+            className="text-xs bg-secondary px-3 py-1 rounded border border-border hover:border-primary hover:text-primary"
+            title="Beautify and sort object keys alphabetically"
+          >
+            ⇅ Sort keys
+          </button>
+          <button
+            onClick={() => apply("minify")}
+            className="text-xs bg-secondary px-3 py-1 rounded border border-border hover:border-primary hover:text-primary"
+          >
+            ⤡ Minify
+          </button>
+          <button
+            onClick={() => {
+              navigator.clipboard?.writeText(output || input);
+              setCopied(true);
+              setTimeout(() => setCopied(false), 1200);
+            }}
+            className="text-xs bg-secondary px-3 py-1 rounded border border-border hover:border-muted-foreground"
+          >
+            {copied ? "Copied" : "Copy"}
+          </button>
+          <button
+            onClick={() => apply("pretty")}
+            className="text-xs bg-primary text-primary-foreground font-bold px-4 py-1 rounded hover:opacity-90"
+          >
+            ⌁ BEAUTIFY
+          </button>
+        </div>
+      </div>
+
+      {error ? (
+        <div className="px-4 py-2 border-b border-border bg-destructive/10 text-destructive text-xs font-mono">
+          ✗ {error}
+        </div>
+      ) : output ? (
+        <div className="px-4 py-2 border-b border-border bg-primary/5 text-primary text-xs font-mono">
+          ✓ Valid JSON · {stats}
+        </div>
+      ) : null}
+
+      <div className="grid md:grid-cols-2 md:h-[480px] font-mono text-sm leading-relaxed overflow-hidden">
+        <div className="p-4 md:p-6 border-b md:border-b-0 md:border-r border-border overflow-auto bg-surface-2/40 min-h-[300px] md:min-h-0">
+          <div className="text-muted-foreground mb-3 text-[10px] uppercase tracking-widest">
+            Input — JSON
+          </div>
+          <textarea
+            value={input}
+            onChange={(e) => {
+              setInput(e.target.value);
+              setError(null);
+            }}
+            spellCheck={false}
+            className="w-full h-[260px] md:h-[calc(100%-1.5rem)] bg-transparent resize-none outline-none text-zinc-300 font-mono text-sm leading-relaxed"
+          />
+        </div>
+        <div className="p-4 md:p-6 overflow-auto min-h-[300px] md:min-h-0">
+          <div className="text-muted-foreground mb-3 text-[10px] uppercase tracking-widest">
+            Formatted output
+          </div>
+          <pre className="whitespace-pre text-primary/90 text-sm leading-relaxed">
+            {output || "// Press BEAUTIFY to format and validate your JSON."}
+          </pre>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ------------------------- Tabs shell -------------------------
 
 const TABS: { id: Mode; label: string; sub: string }[] = [
@@ -2767,6 +2906,7 @@ const TABS: { id: Mode; label: string; sub: string }[] = [
   { id: "PYTHON", label: "Python", sub: "+ runtime" },
   { id: "PYSPARK", label: "PySpark", sub: "Catalyst-aware" },
   { id: "DATA", label: "Data Builder", sub: "schema → rows" },
+  { id: "JSON", label: "JSON", sub: "beautify · validate" },
 ];
 
 export function Workspace() {
@@ -2800,6 +2940,7 @@ export function Workspace() {
       {mode === "PYTHON" && <PythonPanel />}
       {mode === "PYSPARK" && <PySparkPanel />}
       {mode === "DATA" && <DataBuilderPanel />}
+      {mode === "JSON" && <JsonPanel />}
     </div>
   );
 }
