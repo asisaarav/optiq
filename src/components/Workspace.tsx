@@ -1292,6 +1292,14 @@ function extractTableNames(query: string): string[] {
   return [...set].sort();
 }
 
+function friendlySqlError(msg: string): string {
+  if (/Table does not exist|Cannot read propert|undefined/i.test(msg))
+    return `${msg} — a referenced table could not be created from the sample data. Provide a schema/fixtures via "Source" to run it exactly.`;
+  if (/Parse error|SyntaxError/i.test(msg))
+    return `${msg} — the local runner supports standard SELECT syntax; dialect-specific constructs may need simplifying.`;
+  return msg;
+}
+
 async function runSqlLocal(
   query: string,
   customFixtures?: Record<string, Record<string, unknown>[]>,
@@ -1306,72 +1314,153 @@ async function runSqlLocal(
 
   tick("Parsing query", 10);
   await yieldUI();
+
+  if (!query.trim()) {
+    return {
+      status: "error",
+      label: "Nothing to run",
+      error: "The editor is empty — write or paste a query first.",
+      elapsedMs: 0,
+    };
+  }
+
   const tables = extractTableNames(query);
   const cacheKey = tables.join("|");
 
   tick("Loading SQL engine", 25);
-  const alasqlModule = await import("alasql");
-  const alasql = ((alasqlModule as { default?: unknown }).default ?? alasqlModule) as AlSql &
-    ((sql: string) => unknown);
+  let alasql: AlSql & ((sql: string) => unknown);
+  try {
+    const alasqlModule = await import("alasql");
+    alasql = ((alasqlModule as { default?: unknown }).default ?? alasqlModule) as AlSql &
+      ((sql: string) => unknown);
+  } catch (e) {
+    return {
+      status: "error",
+      label: "Engine unavailable",
+      error: `Could not load the in-browser SQL engine: ${
+        e instanceof Error ? e.message : String(e)
+      }`,
+      elapsedMs: performance.now() - started,
+    };
+  }
+  const run = alasql as unknown as (sql: string) => unknown;
+
+  // Always make sure every table the query touches has rows, even when custom
+  // fixtures only cover part of the query.
+  const ensureAllTables = (base: Record<string, Record<string, unknown>[]>) => {
+    const missing = tables.filter((t) => !base[t] || !base[t].length);
+    if (!missing.length) return base;
+    const generated = buildSmartFixtures(query);
+    const merged = { ...base };
+    for (const t of missing) if (generated[t]?.length) merged[t] = generated[t];
+    return merged;
+  };
+
+  const attempt = async (
+    fixtures: Record<string, Record<string, unknown>[]>,
+    sourceLabel: string,
+  ): Promise<ExecutionResult & { rowCount: number }> => {
+    tick("Seeding in-memory DB", 75, `${Object.keys(fixtures).length} tables`);
+    const seedErrors: string[] = [];
+    for (const [table, rows] of Object.entries(fixtures)) {
+      try {
+        run(`DROP TABLE IF EXISTS ${table}`);
+      } catch {
+        /* noop */
+      }
+      try {
+        run(`CREATE TABLE ${table}`);
+        alasql.tables[table].data = rows.map((row) => ({ ...row }));
+      } catch (e) {
+        seedErrors.push(`${table}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    const unseeded = tables.filter((t) => !alasql.tables[t]?.data?.length);
+    if (unseeded.length === tables.length && tables.length > 0) {
+      return {
+        status: "error",
+        label: "No test data available",
+        error: `Could not build sample rows for: ${unseeded.join(", ")}${
+          seedErrors.length ? ` (${seedErrors[0]})` : ""
+        }. Add a schema or sample rows under "Source" and re-run.`,
+        elapsedMs: performance.now() - started,
+        rowCount: 0,
+      };
+    }
+    await yieldUI();
+
+    tick("Executing query", 90);
+    let result: unknown;
+    try {
+      result = run(normalizeSqlForRunner(query));
+    } catch (e) {
+      return {
+        status: "error",
+        label: "SQL runtime error",
+        error: friendlySqlError(e instanceof Error ? e.message : String(e)),
+        elapsedMs: performance.now() - started,
+        rowCount: 0,
+      };
+    }
+    const rows = Array.isArray(result)
+      ? (result as Record<string, unknown>[]).slice(0, 100)
+      : [{ result }];
+    const partial = unseeded.length ? ` · ${unseeded.length} table(s) empty` : "";
+    return {
+      status: "success",
+      label: rows.length
+        ? `${rows.length} row${rows.length === 1 ? "" : "s"} · ${
+            Object.keys(fixtures).length
+          } tables ${sourceLabel}${partial}`
+        : `0 rows · predicates matched no sample data ${sourceLabel}${partial}`,
+      rows,
+      output: JSON.stringify(rows, null, 2),
+      elapsedMs: performance.now() - started,
+      rowCount: rows.length,
+    };
+  };
 
   let fixtures: Record<string, Record<string, unknown>[]>;
-  let fromCache = false;
+  let sourceLabel: string;
+  let regenerable = false;
   if (customFixtures && Object.keys(customFixtures).length) {
-    fixtures = customFixtures;
+    fixtures = ensureAllTables(customFixtures);
+    sourceLabel = "(provided)";
     tick("Using provided fixtures", 55, `${Object.keys(fixtures).length} tables`);
   } else if (cacheKey && FIXTURE_CACHE.has(cacheKey)) {
-    fixtures = FIXTURE_CACHE.get(cacheKey)!;
-    fromCache = true;
-    tick("Reusing cached data", 55, `${tables.join(", ") || "—"}`);
+    fixtures = ensureAllTables(FIXTURE_CACHE.get(cacheKey)!);
+    sourceLabel = "(cached)";
+    regenerable = true;
+    tick("Reusing cached data", 55, tables.join(", ") || "—");
   } else {
     tick("Generating sample data", 45, tables.length ? tables.join(", ") : "auto");
     await yieldUI();
     fixtures = buildSmartFixtures(query);
     if (cacheKey) FIXTURE_CACHE.set(cacheKey, fixtures);
+    sourceLabel = "(generated)";
+    regenerable = true;
     tick("Sample data ready", 65, `${Object.keys(fixtures).length} tables`);
   }
   await yieldUI();
 
-  tick("Seeding in-memory DB", 75);
-  // Use alasql's default database so SELECT resolves tables reliably.
-  // Drop any leftover tables from a previous run, then recreate + load rows.
-  const run = alasql as unknown as (sql: string) => unknown;
-  Object.keys(fixtures).forEach((table) => {
-    try { run(`DROP TABLE IF EXISTS ${table}`); } catch { /* noop */ }
-  });
-  Object.entries(fixtures).forEach(([table, rows]) => {
-    try {
-      run(`CREATE TABLE ${table}`);
-      alasql.tables[table].data = rows.map((row) => ({ ...row }));
-    } catch {
-      /* ignore */
-    }
-  });
-  await yieldUI();
+  let outcome = await attempt(fixtures, sourceLabel);
 
-  tick("Executing query", 90);
-  const normalized = normalizeSqlForRunner(query);
-  let result: unknown;
-  try {
-    result = run(normalized);
-  } catch (e) {
-    tick("Failed", 100);
-    return {
-      status: "error",
-      label: "SQL runtime error",
-      error: e instanceof Error ? e.message : String(e),
-      elapsedMs: performance.now() - started,
-    };
+  // Self-heal: an empty/failed first pass on generated data gets one retry with
+  // freshly generated rows so users never stare at an unexplained empty grid.
+  if (regenerable && (outcome.status === "error" || outcome.rowCount === 0)) {
+    tick("Rebuilding sample data", 80, "retrying with fresh rows");
+    await yieldUI();
+    const fresh = buildSmartFixtures(query);
+    if (cacheKey) FIXTURE_CACHE.set(cacheKey, fresh);
+    const retried = await attempt(fresh, "(regenerated)");
+    if (retried.status === "success" && retried.rowCount > 0) outcome = retried;
+    else if (outcome.status === "error" && retried.status === "success") outcome = retried;
   }
-  const rows = Array.isArray(result) ? (result as Record<string, unknown>[]).slice(0, 100) : [{ result }];
-  tick("Done", 100);
-  return {
-    status: "success",
-    label: `${rows.length} row${rows.length === 1 ? "" : "s"} · ${Object.keys(fixtures).length} tables ${fromCache ? "(cached)" : "(generated)"}`,
-    rows,
-    output: JSON.stringify(rows, null, 2),
-    elapsedMs: performance.now() - started,
-  };
+
+  tick(outcome.status === "error" ? "Failed" : "Done", 100);
+  const { rowCount: _rowCount, ...rest } = outcome;
+  void _rowCount;
+  return rest;
 }
 
 // ------------------------- Pyodide runner -------------------------
