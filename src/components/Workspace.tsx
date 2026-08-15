@@ -2943,7 +2943,7 @@ function DataBuilderPanel() {
 const JSON_SAMPLE = `{"pipeline":"daily_orders","engine":"databricks","steps":[{"op":"read","path":"s3://lake/orders","format":"delta"},{"op":"filter","expr":"order_date >= '2024-01-01'"},{"op":"aggregate","by":["region"],"metrics":{"revenue":"sum(amount)"}}],"retries":3,"enabled":true}`;
 
 function JsonPanel() {
-  const cap = useCappedInput();
+  const cap = useCappedInput(MAX_JSON_CHARS);
   const [input, setInput] = useState(JSON_SAMPLE);
   const [output, setOutput] = useState("");
   const [error, setError] = useState<string | null>(null);
