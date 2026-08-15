@@ -950,6 +950,23 @@ function optimizeSql(input: string, engine: SqlEngine): Optimization {
       detail: "Unbounded SELECT — cap row count for exploratory queries.",
     });
   }
+  if (/SELECT\s+\*/i.test(output)) {
+    changes.push({
+      title: "Avoid SELECT *",
+      detail:
+        "Project only the columns you consume — enables index-only scans and cuts network payload.",
+      highlight: true,
+    });
+  }
+  if (/WHERE[\s\S]*?\b(LOWER|UPPER|TRIM|CAST|DATE|SUBSTR|SUBSTRING)\s*\(\s*\w+/i.test(output)) {
+    changes.push({
+      title: "Function on filtered column",
+      detail:
+        "Wrapping a column in a function blocks plain indexes — add an expression/functional index or store the normalized value.",
+      highlight: true,
+    });
+  }
+
   const realChanged = normalizeForCompare(output) !== normalizeForCompare(input);
 
   // ── Business-logic safety net ────────────────────────────────────────────
