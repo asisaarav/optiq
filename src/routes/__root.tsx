@@ -12,7 +12,7 @@ import appCss from "../styles.css?url";
 
 function NotFoundComponent() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
+    <div className="flex min-h-dvh items-center justify-center bg-background px-4">
       <div className="max-w-md text-center">
         <h1 className="text-7xl font-bold text-foreground">404</h1>
         <h2 className="mt-4 text-xl font-semibold text-foreground">Page not found</h2>
@@ -37,7 +37,7 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   const router = useRouter();
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
+    <div className="flex min-h-dvh items-center justify-center bg-background px-4">
       <div className="max-w-md text-center">
         <h1 className="text-xl font-semibold tracking-tight text-foreground">
           This page didn't load
@@ -86,27 +86,13 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
           "Paste slow code. Get production-ready optimizations across Postgres, MySQL, Oracle, PL/SQL, Snowflake, BigQuery, Databricks, ClickHouse, Python, and PySpark.",
       },
       { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary" },
+      { name: "twitter:card", content: "summary_large_image" },
       { name: "twitter:site", content: "@Optiq" },
       { name: "twitter:title", content: "Optiq — Optimize SQL, Python & PySpark code instantly" },
       {
         name: "twitter:description",
         content:
           "Paste slow code. Get production-ready optimizations across Postgres, MySQL, Oracle, PL/SQL, Snowflake, BigQuery, Databricks, ClickHouse, Python, and PySpark.",
-      },
-      {
-        property: "og:image",
-        content: "https://code-optimizer.instaluxe.in/og-optiq.jpg",
-      },
-      { property: "og:image:width", content: "1200" },
-      { property: "og:image:height", content: "630" },
-      {
-        property: "og:image:alt",
-        content: "OPTIQ — query and script optimizer for SQL, Python and PySpark",
-      },
-      {
-        name: "twitter:image",
-        content: "https://code-optimizer.instaluxe.in/og-optiq.jpg",
       },
     ],
     links: [
