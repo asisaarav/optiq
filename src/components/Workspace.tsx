@@ -25,7 +25,6 @@ import {
   MAX_EDITOR_CHARS,
   MAX_FIXTURE_CHARS,
   MAX_JSON_CHARS,
-  MAX_DATA_ROWS,
   capMessage,
   capText,
   clampRows,
@@ -1777,24 +1776,6 @@ function ExecutionPanel({ result }: { result: ExecutionResult }) {
             "Run the current input or optimized output to see real execution results."}
         </pre>
       )}
-    </div>
-  );
-}
-
-function ChangesPanel({ changes }: { changes: Change[] }) {
-  return (
-    <div className="bg-surface/50 p-4 rounded-xl ring-1 ring-border">
-      <h2 className="text-xs font-bold uppercase tracking-widest mb-4">Applied Changes</h2>
-      <div className="space-y-4">
-        {changes.map((c, i) => (
-          <div key={i} className="space-y-1">
-            <div className={`text-sm font-medium ${c.highlight ? "text-primary" : ""}`}>
-              {c.title}
-            </div>
-            <div className="text-xs text-muted-foreground">{c.detail}</div>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }
