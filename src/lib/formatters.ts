@@ -18,6 +18,7 @@ function maskStrings(src: string, comment: "sql" | "py"): Mask {
       : text.replace(/#[^\n]*/g, push);
   return {
     text,
+    // eslint-disable-next-line no-control-regex -- intentional sentinel placeholders, never user-visible
     restore: (s) => s.replace(/\u0000(\d+)\u0000/g, (_, i) => store[Number(i)] ?? ""),
   };
 }
@@ -132,7 +133,10 @@ export function formatSql(src: string, indentSize = 2): string {
   const out = lines
     .map((line) =>
       line.length > 90 && line.includes(", ")
-        ? line.replace(/, /g, `,\n${" ".repeat(line.length - line.trimStart().length + indentSize)}`)
+        ? line.replace(
+            /, /g,
+            `,\n${" ".repeat(line.length - line.trimStart().length + indentSize)}`,
+          )
         : line,
     )
     .join("\n");
@@ -185,7 +189,12 @@ export function formatPython(src: string, indentSize = 4): string {
     contDepth = Math.max(0, contDepth + opens - closes);
   }
 
-  return out.join("\n").replace(/\n{3,}/g, "\n\n").trim() + "\n";
+  return (
+    out
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim() + "\n"
+  );
 }
 
 /** Beautify PySpark chains: one .transform() per line, then Python indenting. */
@@ -202,7 +211,11 @@ export function formatPySpark(src: string, indentSize = 4): string {
 export type JsonFormatResult = { ok: true; text: string } | { ok: false; error: string };
 
 /** Beautify or minify JSON with a clear parse error when invalid. */
-export function formatJson(src: string, mode: "pretty" | "minify" = "pretty", indent = 2): JsonFormatResult {
+export function formatJson(
+  src: string,
+  mode: "pretty" | "minify" = "pretty",
+  indent = 2,
+): JsonFormatResult {
   if (!src.trim()) return { ok: false, error: "Nothing to format — paste some JSON first." };
   try {
     const parsed = JSON.parse(src);

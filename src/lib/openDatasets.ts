@@ -109,7 +109,8 @@ export const OPEN_DATASETS: OpenDataset[] = [
   {
     id: "world-happiness",
     name: "World Happiness 2019",
-    description: "156 countries — GDP per capita, social support, life expectancy, happiness score.",
+    description:
+      "156 countries — GDP per capita, social support, life expectancy, happiness score.",
     domain: "social",
     table: "happiness",
     url: "https://raw.githubusercontent.com/plotly/datasets/master/2014_world_gdp_with_codes.csv",
@@ -229,24 +230,27 @@ function parseCsv(text: string, delimiter = ","): Record<string, unknown>[] {
 
   if (rows.length === 0) return [];
   const headers = rows[0].map((h) => h.trim().replace(/[^a-zA-Z0-9_]/g, "_"));
-  return rows.slice(1).filter((r) => r.length > 1 || (r[0] && r[0].length > 0)).map((r) => {
-    const obj: Record<string, unknown> = {};
-    headers.forEach((h, idx) => {
-      const raw = (r[idx] ?? "").trim();
-      if (raw === "" || raw.toLowerCase() === "na" || raw.toLowerCase() === "null") {
-        obj[h] = null;
-      } else if (/^-?\d+$/.test(raw)) {
-        obj[h] = Number(raw);
-      } else if (/^-?\d*\.\d+$/.test(raw)) {
-        obj[h] = Number(raw);
-      } else if (raw === "true" || raw === "false") {
-        obj[h] = raw === "true";
-      } else {
-        obj[h] = raw;
-      }
+  return rows
+    .slice(1)
+    .filter((r) => r.length > 1 || (r[0] && r[0].length > 0))
+    .map((r) => {
+      const obj: Record<string, unknown> = {};
+      headers.forEach((h, idx) => {
+        const raw = (r[idx] ?? "").trim();
+        if (raw === "" || raw.toLowerCase() === "na" || raw.toLowerCase() === "null") {
+          obj[h] = null;
+        } else if (/^-?\d+$/.test(raw)) {
+          obj[h] = Number(raw);
+        } else if (/^-?\d*\.\d+$/.test(raw)) {
+          obj[h] = Number(raw);
+        } else if (raw === "true" || raw === "false") {
+          obj[h] = raw === "true";
+        } else {
+          obj[h] = raw;
+        }
+      });
+      return obj;
     });
-    return obj;
-  });
 }
 
 // ---------- IndexedDB cache ----------
@@ -325,7 +329,10 @@ export async function loadDataset(
   return { table: ds.table, rows };
 }
 
-export function buildSampleQuery(ds: OpenDataset, sampleRow: Record<string, unknown> | undefined): string {
+export function buildSampleQuery(
+  ds: OpenDataset,
+  sampleRow: Record<string, unknown> | undefined,
+): string {
   if (!sampleRow) return `SELECT * FROM ${ds.table} LIMIT 20;`;
   const cols = Object.keys(sampleRow).slice(0, 5);
   return `-- ${ds.name}\nSELECT ${cols.join(", ")}\nFROM ${ds.table}\nLIMIT 20;`;

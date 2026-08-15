@@ -18,10 +18,18 @@ export function Nav() {
             <span className="size-3 bg-primary rounded-sm" /> OPTIQ
           </span>
           <div className="hidden md:flex gap-6 text-sm font-medium text-muted-foreground">
-            <a href="#workspace" className="hover:text-foreground transition-colors">Optimizer</a>
-            <a href="#engines" className="hover:text-foreground transition-colors">Engines</a>
-            <a href="#api" className="hover:text-foreground transition-colors">API</a>
-            <a href="#pricing" className="hover:text-foreground transition-colors">Pricing</a>
+            <a href="#workspace" className="hover:text-foreground transition-colors">
+              Optimizer
+            </a>
+            <a href="#engines" className="hover:text-foreground transition-colors">
+              Engines
+            </a>
+            <a href="#api" className="hover:text-foreground transition-colors">
+              API
+            </a>
+            <a href="#pricing" className="hover:text-foreground transition-colors">
+              Pricing
+            </a>
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -38,7 +46,10 @@ export function Nav() {
               Sign out
             </button>
           ) : (
-            <a href="/auth" className="bg-foreground text-background px-4 py-1.5 rounded text-sm font-semibold hover:bg-primary transition-colors">
+            <a
+              href="/auth"
+              className="bg-foreground text-background px-4 py-1.5 rounded text-sm font-semibold hover:bg-primary transition-colors"
+            >
               Sign in
             </a>
           )}

@@ -4,6 +4,42 @@ import { ENGINE_TIPS, type Tip, type TipCategory, type TipsKey } from "@/lib/eng
 import { OPEN_DATASETS, loadDataset, buildSampleQuery, type OpenDataset } from "@/lib/openDatasets";
 import { aiOptimize } from "@/lib/aiOptimize.functions";
 import { formatSql, formatPython, formatPySpark, formatJson, sortJsonKeys } from "@/lib/formatters";
+import { PanelBoundary } from "@/components/PanelBoundary";
+import { Skeleton } from "@/components/ui/skeleton";
+import { DiffView } from "@/components/DiffView";
+import { runPythonSandboxed } from "@/lib/pyRunner";
+import {
+  MAX_EDITOR_CHARS,
+  MAX_FIXTURE_CHARS,
+  MAX_JSON_CHARS,
+  MAX_DATA_ROWS,
+  capMessage,
+  capText,
+  clampRows,
+} from "@/lib/limits";
+
+/** Caps a pasted value and returns a user-facing notice when it was trimmed. */
+function useCappedInput(limit = MAX_EDITOR_CHARS) {
+  const [notice, setNotice] = useState<string | null>(null);
+  function apply(next: string, set: (v: string) => void) {
+    const capped = capText(next, limit);
+    set(capped.value);
+    setNotice(capped.truncated ? capMessage(capped.limit) : null);
+  }
+  return { notice, apply };
+}
+
+function LimitNotice({ notice }: { notice: string | null }) {
+  if (!notice) return null;
+  return (
+    <div
+      role="status"
+      className="px-4 py-1.5 text-[11px] font-mono bg-amber-500/10 text-amber-200 border-b border-border"
+    >
+      ⚠ {notice}
+    </div>
+  );
+}
 
 function useAiOptimizer() {
   const fn = useServerFn(aiOptimize);
@@ -291,6 +327,7 @@ function highlight(code: string, kind: "sql" | "py") {
 
   // restore tokens (handle nesting by repeating)
   for (let i = 0; i < 4; i++) {
+    // eslint-disable-next-line no-control-regex -- intentional sentinel placeholders, never user-visible
     out = out.replace(/\u0001T(\d+)E\u0001/g, (_m, n) => tokens[+n] ?? "");
   }
   return out;
@@ -913,6 +950,7 @@ function optimizeSql(input: string, engine: SqlEngine): Optimization {
       detail: "Unbounded SELECT — cap row count for exploratory queries.",
     });
   }
+
   const realChanged = normalizeForCompare(output) !== normalizeForCompare(input);
 
   // ── Business-logic safety net ────────────────────────────────────────────
@@ -953,7 +991,7 @@ function optimizeSql(input: string, engine: SqlEngine): Optimization {
     };
   }
 
-  if (changes.length === 0 || !realChanged) {
+  if (changes.length === 0) {
     return {
       output,
       speedup: 0,
@@ -962,6 +1000,22 @@ function optimizeSql(input: string, engine: SqlEngine): Optimization {
           title: "No safe rewrite",
           detail: "Query is already efficient — inspect EXPLAIN for plan-level wins.",
         },
+      ],
+      diagnostics,
+    };
+  }
+  if (!realChanged) {
+    // Text is unchanged, but the advisory findings are still real: surface them
+    // as review notes with an honest 0% speedup instead of claiming perfection.
+    return {
+      output,
+      speedup: 0,
+      changes: [
+        {
+          title: "Advisory only — query text unchanged",
+          detail: "No mechanical rewrite was safe; apply the findings below by hand.",
+        },
+        ...changes,
       ],
       diagnostics,
     };
@@ -1488,42 +1542,7 @@ async function runSqlLocal(
   return rest;
 }
 
-// ------------------------- Pyodide runner -------------------------
-
-type PyodideRuntime = {
-  setStdout: (options: { batched: (text: string) => void }) => void;
-  setStderr: (options: { batched: (text: string) => void }) => void;
-  runPythonAsync: (code: string) => Promise<unknown>;
-  loadPackagesFromImports?: (code: string) => Promise<void>;
-};
-
-type PyodideLoader = (options: { indexURL: string }) => Promise<PyodideRuntime>;
-
-type PyodideWindow = Window & { loadPyodide?: PyodideLoader };
-
-let pyodidePromise: Promise<PyodideRuntime> | null = null;
-function loadPyodide(): Promise<PyodideRuntime> {
-  if (pyodidePromise) return pyodidePromise;
-  pyodidePromise = new Promise((resolve, reject) => {
-    const w = window as PyodideWindow;
-    if (w.loadPyodide) {
-      w.loadPyodide({ indexURL: "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/" }).then(
-        resolve,
-        reject,
-      );
-      return;
-    }
-    const s = document.createElement("script");
-    s.src = "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js";
-    s.onload = () =>
-      (window as PyodideWindow).loadPyodide!({
-        indexURL: "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/",
-      }).then(resolve, reject);
-    s.onerror = () => reject(new Error("Failed to load Pyodide"));
-    document.head.appendChild(s);
-  });
-  return pyodidePromise;
-}
+// Python execution runs in a sandboxed Web Worker — see src/lib/pyRunner.ts.
 
 // ------------------------- UI components -------------------------
 
@@ -1566,13 +1585,19 @@ function CodeOutput({
   speedup,
   changes,
   headerRight,
+  original,
+  optimized,
 }: {
   html: string;
   speedup?: number;
   changes?: Change[];
   headerRight?: React.ReactNode;
+  original?: string;
+  optimized?: string;
 }) {
+  const [showDiff, setShowDiff] = useState(false);
   const all = changes ?? [];
+
   const emote =
     speedup === undefined
       ? null
@@ -1631,10 +1656,25 @@ function CodeOutput({
           </div>
         </div>
       )}
-      <pre
-        className="text-foreground whitespace-pre-wrap pr-2 font-mono text-sm leading-relaxed"
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
+      {original !== undefined && optimized !== undefined && (
+        <div className="mb-3">
+          <button
+            onClick={() => setShowDiff((v) => !v)}
+            aria-pressed={showDiff}
+            className="text-[10px] font-mono uppercase tracking-widest px-2 py-0.5 rounded border border-border text-muted-foreground hover:text-primary hover:border-primary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          >
+            {showDiff ? "◧ Hide diff" : "◧ Show diff"}
+          </button>
+        </div>
+      )}
+      {showDiff && original !== undefined && optimized !== undefined ? (
+        <DiffView original={original} optimized={optimized} />
+      ) : (
+        <pre
+          className="text-foreground whitespace-pre-wrap pr-2 font-mono text-sm leading-relaxed"
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
+      )}
     </div>
   );
 }
@@ -1653,7 +1693,13 @@ function ExecutionPanel({ result }: { result: ExecutionResult }) {
           {result.elapsedMs !== undefined ? ` · ${result.elapsedMs.toFixed(1)}ms` : ""}
         </div>
       </div>
-      {result.status === "error" ? (
+      {result.status === "running" ? (
+        <div className="space-y-2" aria-busy="true" aria-live="polite">
+          {[0, 1, 2, 3].map((i) => (
+            <Skeleton key={i} className="h-4 w-full" style={{ opacity: 1 - i * 0.2 }} />
+          ))}
+        </div>
+      ) : result.status === "error" ? (
         <pre className="min-h-[72px] max-h-[180px] overflow-auto whitespace-pre-wrap font-mono text-xs text-destructive">
           {result.error}
         </pre>
@@ -1817,6 +1863,7 @@ function runTests(specs: TestSpec[], exec: ExecutionResult): TestResult[] {
 }
 
 function SqlPanel() {
+  const cap = useCappedInput();
   const [engine, setEngine] = useState<SqlEngine>("POSTGRESQL");
   const [input, setInput] = useState(SQL_SAMPLES.POSTGRESQL);
   const [result, setResult] = useState<Optimization>(() =>
@@ -1995,6 +2042,7 @@ function SqlPanel() {
         />
         <AiBadge loading={ai.loading} error={ai.error} warning={ai.warning} model={ai.model} />
         <DiagnosticsBar diagnostics={liveDiagnostics} />
+        <LimitNotice notice={cap.notice} />
 
         {showDatasets && (
           <div className="px-4 py-3 border-b border-border bg-surface-2/40 space-y-2">
@@ -2051,7 +2099,8 @@ function SqlPanel() {
             </div>
             <textarea
               value={fixturesText}
-              onChange={(e) => setFixturesText(e.target.value)}
+              onChange={(e) => setFixturesText(capText(e.target.value, MAX_FIXTURE_CHARS).value)}
+              maxLength={MAX_FIXTURE_CHARS}
               spellCheck={false}
               placeholder='{"users":[{"id":1,"name":"Ada","status":"active"}],"orders":[...]}'
               className="w-full h-32 bg-secondary/50 border border-border rounded p-2 font-mono text-[11px] outline-none focus:border-primary"
@@ -2081,7 +2130,8 @@ function SqlPanel() {
             </div>
             <textarea
               value={testsText}
-              onChange={(e) => setTestsText(e.target.value)}
+              onChange={(e) => setTestsText(capText(e.target.value, MAX_FIXTURE_CHARS).value)}
+              maxLength={MAX_FIXTURE_CHARS}
               spellCheck={false}
               className="w-full h-28 bg-secondary/50 border border-border rounded p-2 font-mono text-[11px] outline-none focus:border-primary"
             />
@@ -2140,12 +2190,16 @@ function SqlPanel() {
             </div>
             <textarea
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              aria-label="SQL input editor"
+              maxLength={MAX_EDITOR_CHARS}
+              onChange={(e) => cap.apply(e.target.value, setInput)}
               spellCheck={false}
               className="w-full h-[300px] md:h-[calc(100%-1.75rem)] bg-transparent resize-none outline-none text-zinc-300 font-mono text-sm leading-relaxed"
             />
           </div>
           <CodeOutput
+            original={input}
+            optimized={result.output}
             html={html}
             speedup={result.speedup}
             changes={result.changes}
@@ -2172,6 +2226,7 @@ function SqlPanel() {
 
 // Python panel with Pyodide runner
 function PythonPanel() {
+  const cap = useCappedInput();
   const [input, setInput] = useState(PY_SAMPLE);
   const [result, setResult] = useState<Optimization>(() => optimize(PY_SAMPLE, "PYTHON"));
   const [copied, setCopied] = useState(false);
@@ -2189,42 +2244,28 @@ function PythonPanel() {
   async function run(target: "input" | "output" = runTarget) {
     setRunTarget(target);
     const code = target === "input" ? input : result.output;
+    if (!code.trim()) {
+      setStdout("[nothing to run] The script is empty.");
+      return;
+    }
     setStdout("");
     setRunning("loading");
-    try {
-      const py = await loadPyodide();
-      setRunning("running");
-      let buf = "";
-      py.setStdout({
-        batched: (s: string) => {
-          buf += s + "\n";
-          setStdout(buf);
-        },
-      });
-      py.setStderr({
-        batched: (s: string) => {
-          buf += s + "\n";
-          setStdout(buf);
-        },
-      });
-      try {
-        if (py.loadPackagesFromImports) {
-          try {
-            await py.loadPackagesFromImports(code);
-          } catch {
-            /* ignore — fall through and let runtime error surface */
-          }
-        }
-        await py.runPythonAsync(code);
-      } catch (e: unknown) {
-        buf += `\n[error] ${e instanceof Error ? e.message : String(e)}`;
-        setStdout(buf);
-      }
-    } catch (e: unknown) {
-      setStdout(`[failed to load runtime] ${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      setRunning("idle");
-    }
+    let buf = "";
+    const append = (line: string) => {
+      buf += line.endsWith("\n") ? line : `${line}\n`;
+      setStdout(buf);
+    };
+    const outcome = await runPythonSandboxed(code, {
+      onStdout: append,
+      onPhase: (phase) => setRunning(phase === "loading" ? "loading" : "running"),
+    });
+    if (outcome.status === "error") append(`\n[error] ${outcome.message ?? "Unknown error"}`);
+    if (outcome.status === "timeout") append(`\n[stopped] ${outcome.message ?? "Timed out"}`);
+    if (outcome.status === "unavailable")
+      append(`\n[runtime unavailable] ${outcome.message ?? "Could not start Python."}`);
+    if (outcome.status === "success" && !buf.trim())
+      append("[done] Script finished with no output — add print() calls to inspect values.");
+    setRunning("idle");
   }
 
   return (
@@ -2271,6 +2312,7 @@ function PythonPanel() {
         />
         <AiBadge loading={ai.loading} error={ai.error} warning={ai.warning} model={ai.model} />
         <DiagnosticsBar diagnostics={liveDiagnostics} />
+        <LimitNotice notice={cap.notice} />
         <div className="grid md:grid-cols-2 md:h-[480px] font-mono text-sm leading-relaxed overflow-hidden">
           <div className="p-4 md:p-6 border-b md:border-b-0 md:border-r border-border overflow-auto bg-surface-2/40 min-h-[360px] md:min-h-0">
             <div className="mb-3 flex items-center justify-between gap-2">
@@ -2292,12 +2334,16 @@ function PythonPanel() {
             </div>
             <textarea
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              aria-label="Python input editor"
+              maxLength={MAX_EDITOR_CHARS}
+              onChange={(e) => cap.apply(e.target.value, setInput)}
               spellCheck={false}
               className="w-full h-[300px] md:h-[calc(100%-1.75rem)] bg-transparent resize-none outline-none text-zinc-300 font-mono text-sm leading-relaxed"
             />
           </div>
           <CodeOutput
+            original={input}
+            optimized={result.output}
             html={html}
             speedup={result.speedup}
             changes={result.changes}
@@ -2373,6 +2419,7 @@ function downloadText(filename: string, text: string) {
 }
 
 function PySparkPanel() {
+  const cap = useCappedInput();
   const [input, setInput] = useState(PYSPARK_SAMPLE);
   const [result, setResult] = useState<Optimization>(() => optimize(PYSPARK_SAMPLE, "PYSPARK"));
   const [copied, setCopied] = useState(false);
@@ -2436,6 +2483,7 @@ function PySparkPanel() {
         />
         <AiBadge loading={ai.loading} error={ai.error} warning={ai.warning} model={ai.model} />
         <DiagnosticsBar diagnostics={liveDiagnostics} />
+        <LimitNotice notice={cap.notice} />
         <div className="grid md:grid-cols-2 md:h-[520px] font-mono text-sm leading-relaxed overflow-hidden">
           <div className="p-4 md:p-6 border-b md:border-b-0 md:border-r border-border overflow-auto bg-surface-2/40 min-h-[360px] md:min-h-0">
             <div className="text-muted-foreground mb-3 text-[10px] uppercase tracking-widest">
@@ -2443,12 +2491,20 @@ function PySparkPanel() {
             </div>
             <textarea
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              aria-label="PySpark input editor"
+              maxLength={MAX_EDITOR_CHARS}
+              onChange={(e) => cap.apply(e.target.value, setInput)}
               spellCheck={false}
               className="w-full h-[300px] md:h-[calc(100%-1.5rem)] bg-transparent resize-none outline-none text-zinc-300 font-mono text-sm leading-relaxed"
             />
           </div>
-          <CodeOutput html={html} speedup={result.speedup} changes={result.changes} />
+          <CodeOutput
+            html={html}
+            speedup={result.speedup}
+            changes={result.changes}
+            original={input}
+            optimized={result.output}
+          />
         </div>
         {showPlan && (
           <div className="border-t border-border bg-surface-2/30 p-4">
@@ -2708,7 +2764,8 @@ function DataBuilderPanel() {
 
   function generate() {
     const data: Record<string, unknown>[] = [];
-    for (let i = 0; i < count; i++) {
+    const safeCount = clampRows(count);
+    for (let i = 0; i < safeCount; i++) {
       const r: Record<string, unknown> = {};
       for (const f of fields) r[f.name || `col_${i}`] = genValue(f);
       data.push(r);
@@ -2818,7 +2875,7 @@ function DataBuilderPanel() {
               min={1}
               max={5000}
               value={count}
-              onChange={(e) => setCount(+e.target.value || 1)}
+              onChange={(e) => setCount(clampRows(e.target.value))}
               className="w-full mt-1 bg-secondary border border-border rounded px-2 py-1 text-xs font-mono outline-none focus:border-primary"
             />
           </label>
@@ -2898,6 +2955,7 @@ function DataBuilderPanel() {
 const JSON_SAMPLE = `{"pipeline":"daily_orders","engine":"databricks","steps":[{"op":"read","path":"s3://lake/orders","format":"delta"},{"op":"filter","expr":"order_date >= '2024-01-01'"},{"op":"aggregate","by":["region"],"metrics":{"revenue":"sum(amount)"}}],"retries":3,"enabled":true}`;
 
 function JsonPanel() {
+  const cap = useCappedInput(MAX_JSON_CHARS);
   const [input, setInput] = useState(JSON_SAMPLE);
   const [output, setOutput] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -2993,10 +3051,17 @@ function JsonPanel() {
           <div className="text-muted-foreground mb-3 text-[10px] uppercase tracking-widest">
             Input — JSON
           </div>
+          {cap.notice && (
+            <div role="status" className="mb-2 text-[11px] font-mono text-amber-200">
+              ⚠ {cap.notice}
+            </div>
+          )}
           <textarea
             value={input}
+            aria-label="JSON input editor"
+            maxLength={MAX_JSON_CHARS}
             onChange={(e) => {
-              setInput(e.target.value);
+              cap.apply(e.target.value, setInput);
               setError(null);
             }}
             spellCheck={false}
@@ -3053,11 +3118,13 @@ export function Workspace() {
         ))}
       </div>
 
-      {mode === "SQL" && <SqlPanel />}
-      {mode === "PYTHON" && <PythonPanel />}
-      {mode === "PYSPARK" && <PySparkPanel />}
-      {mode === "DATA" && <DataBuilderPanel />}
-      {mode === "JSON" && <JsonPanel />}
+      <PanelBoundary name={`${mode} panel`}>
+        {mode === "SQL" && <SqlPanel />}
+        {mode === "PYTHON" && <PythonPanel />}
+        {mode === "PYSPARK" && <PySparkPanel />}
+        {mode === "DATA" && <DataBuilderPanel />}
+        {mode === "JSON" && <JsonPanel />}
+      </PanelBoundary>
     </div>
   );
 }
