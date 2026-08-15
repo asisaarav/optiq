@@ -3097,15 +3097,17 @@ export function Workspace() {
 
   return (
     <div ref={ref} style={{ animation: "fadeIn 0.6s ease-out both" }}>
-      <div className="flex flex-wrap gap-2 mb-4">
+      <div role="tablist" aria-label="Optimizer modes" className="flex flex-wrap gap-2 mb-4">
         {TABS.map((t) => (
           <button
             key={t.id}
+            role="tab"
+            aria-selected={mode === t.id}
             onClick={() => setMode(t.id)}
-            className={`px-4 py-2 rounded-lg text-sm font-mono font-bold border transition-colors flex items-center gap-2 ${
+            className={`press sheen px-4 py-2 rounded-lg text-sm font-mono font-bold border transition-all duration-300 flex items-center gap-2 ${
               mode === t.id
-                ? "bg-primary text-primary-foreground border-primary"
-                : "bg-surface/40 border-border text-muted-foreground hover:text-foreground hover:border-muted-foreground"
+                ? "bg-primary text-primary-foreground border-primary shadow-[0_10px_28px_-18px_var(--primary)] -translate-y-0.5"
+                : "bg-surface/40 border-border text-muted-foreground hover:text-foreground hover:border-muted-foreground hover:-translate-y-0.5"
             }`}
           >
             <span>{t.label}</span>
@@ -3119,12 +3121,15 @@ export function Workspace() {
       </div>
 
       <PanelBoundary name={`${mode} panel`}>
-        {mode === "SQL" && <SqlPanel />}
-        {mode === "PYTHON" && <PythonPanel />}
-        {mode === "PYSPARK" && <PySparkPanel />}
-        {mode === "DATA" && <DataBuilderPanel />}
-        {mode === "JSON" && <JsonPanel />}
+        <div key={mode} style={{ animation: "fadeIn 0.35s cubic-bezier(0.22,1,0.36,1) both" }}>
+          {mode === "SQL" && <SqlPanel />}
+          {mode === "PYTHON" && <PythonPanel />}
+          {mode === "PYSPARK" && <PySparkPanel />}
+          {mode === "DATA" && <DataBuilderPanel />}
+          {mode === "JSON" && <JsonPanel />}
+        </div>
       </PanelBoundary>
+
     </div>
   );
 }
