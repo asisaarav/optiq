@@ -31,53 +31,183 @@
   --color-surface: var(--surface);
   --color-surface-2: var(--surface-2);
   --color-keyword: var(--keyword);
+  --color-border-strong: var(--border-strong);
+  --color-subtle-foreground: var(--subtle-foreground);
+  --color-primary-strong: var(--primary-strong);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
 }
 
 :root {
-  --radius: 0.625rem;
-  /* Monolithic terminal palette */
-  --background: oklch(0.145 0.005 285);
-  --foreground: oklch(0.95 0.002 285);
-  --muted: oklch(0.22 0.005 285);
-  --muted-foreground: oklch(0.71 0.01 285);
-  --surface: oklch(0.19 0.005 285); /* zinc-900-ish */
-  --surface-2: oklch(0.16 0.005 285); /* zinc-950-ish */
-  --card: oklch(0.19 0.005 285);
-  --card-foreground: oklch(0.95 0.002 285);
-  --popover: oklch(0.19 0.005 285);
-  --popover-foreground: oklch(0.95 0.002 285);
-  --primary: oklch(0.82 0.21 152); /* neon green #00DC82 */
-  --primary-foreground: oklch(0.145 0.005 285);
-  --secondary: oklch(0.25 0.005 285);
-  --secondary-foreground: oklch(0.95 0.002 285);
-  --accent: oklch(0.25 0.005 285);
-  --accent-foreground: oklch(0.95 0.002 285);
-  --destructive: oklch(0.65 0.22 27);
-  --destructive-foreground: oklch(0.98 0 0);
-  --border: oklch(0.27 0.005 285);
-  --input: oklch(0.27 0.005 285);
-  --ring: oklch(0.82 0.21 152);
-  --keyword: oklch(0.75 0.15 240); /* sql keyword blue */
-}
+  --radius: 0.5rem;
 
-.dark {
-  --background: oklch(0.145 0.005 285);
-  --foreground: oklch(0.95 0.002 285);
+  /* ── Palette ─────────────────────────────────────────────────────────
+     Deep graphite with a whisper of blue, one accent. Contrast pairs meet
+     WCAG AA on every surface. Surfaces step up in lightness, not hue. */
+  --background: oklch(0.13 0.008 260);
+  --surface-2: oklch(0.155 0.008 260); /* recessed */
+  --surface: oklch(0.18 0.008 260); /* panels */
+  --card: oklch(0.2 0.008 260); /* raised */
+  --secondary: oklch(0.24 0.008 260); /* controls */
+  --muted: oklch(0.24 0.008 260);
+  --accent: oklch(0.27 0.01 260);
+  --border: oklch(0.27 0.01 260);
+  --border-strong: oklch(0.34 0.012 260);
+  --input: oklch(0.27 0.01 260);
+
+  --foreground: oklch(0.96 0.004 260);
+  --card-foreground: var(--foreground);
+  --secondary-foreground: var(--foreground);
+  --accent-foreground: var(--foreground);
+  --muted-foreground: oklch(0.68 0.012 260);
+  --subtle-foreground: oklch(0.55 0.012 260);
+  --popover: var(--card);
+  --popover-foreground: var(--foreground);
+
+  --primary: oklch(0.8 0.19 155); /* OPTIQ green */
+  --primary-strong: oklch(0.72 0.19 155);
+  --primary-foreground: oklch(0.14 0.02 155);
+  --destructive: oklch(0.63 0.2 25);
+  --destructive-foreground: oklch(0.98 0 0);
+  --warning: oklch(0.8 0.15 80);
+  --info: oklch(0.75 0.13 240);
+  --ring: var(--primary);
+  --keyword: oklch(0.76 0.13 240);
+
+  --shadow-panel:
+    0 1px 0 0 color-mix(in oklab, white 4%, transparent) inset, 0 24px 60px -30px rgb(0 0 0 / 0.7);
 }
 
 @layer base {
   * {
     border-color: var(--color-border);
   }
-
   html,
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: "cv11", "ss01", "ss03";
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--primary) 35%, transparent);
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border-radius: 999px;
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+  textarea,
+  input,
+  select {
+    color-scheme: dark;
+  }
+}
+
+/* ── Component primitives ─────────────────────────────────────────────
+   Every button, chip and panel in the product uses these so hierarchy is
+   consistent: one primary action per toolbar, quiet secondaries, ghost tertiaries. */
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md border text-xs font-semibold leading-none transition-[background-color,border-color,color,box-shadow,transform] duration-150 select-none disabled:opacity-50 disabled:pointer-events-none;
+    height: 2rem;
+    padding-inline: 0.75rem;
+  }
+  .btn-sm {
+    height: 1.625rem;
+    padding-inline: 0.55rem;
+    font-size: 11px;
+  }
+  .btn-primary {
+    @apply border-transparent bg-primary text-primary-foreground hover:bg-primary-strong;
+    box-shadow:
+      0 0 0 1px color-mix(in oklab, var(--primary) 60%, transparent),
+      0 8px 24px -12px var(--primary);
+  }
+  .btn-secondary {
+    @apply border-border bg-secondary text-foreground hover:border-border-strong hover:bg-accent;
+  }
+  .btn-ghost {
+    @apply border-transparent bg-transparent text-muted-foreground hover:bg-secondary hover:text-foreground;
+  }
+  .btn-outline {
+    @apply border-border bg-transparent text-muted-foreground hover:border-primary hover:text-primary;
+  }
+  .btn-outline[aria-pressed="true"],
+  .btn-outline.is-active {
+    @apply border-primary bg-primary/10 text-primary;
+  }
+  .btn-danger {
+    @apply border-transparent bg-destructive/15 text-destructive hover:bg-destructive/25;
+  }
+  .btn:active {
+    transform: translateY(0.5px);
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-full border border-border bg-secondary/60 px-2 py-0.5 text-[10px] font-medium leading-4 text-muted-foreground;
+  }
+  .chip-primary {
+    @apply border-primary/30 bg-primary/10 text-primary;
+  }
+
+  .panel {
+    @apply rounded-xl border border-border bg-surface;
+    box-shadow: var(--shadow-panel);
+  }
+  .panel-head {
+    @apply flex items-center justify-between gap-3 border-b border-border px-4 py-2.5;
+  }
+  .eyebrow {
+    @apply text-[10px] font-semibold uppercase tracking-[0.14em] text-subtle-foreground;
+  }
+  .kbd {
+    @apply inline-flex h-5 min-w-5 items-center justify-center rounded border border-border-strong bg-secondary px-1 font-mono text-[10px] text-muted-foreground;
+  }
+  .field {
+    @apply w-full rounded-md border border-border bg-surface-2 px-2.5 py-1.5 font-mono text-xs text-foreground outline-none transition-colors placeholder:text-subtle-foreground focus:border-primary;
+  }
+  .editor {
+    @apply w-full resize-none bg-transparent font-mono text-[13px] leading-6 text-foreground outline-none;
+    tab-size: 4;
+    caret-color: var(--primary);
+  }
+  .status-bar {
+    @apply flex items-center gap-2 border-b border-border px-4 py-1.5 font-mono text-[11px];
+  }
+  .status-ok {
+    @apply bg-primary/5 text-primary/90;
+  }
+  .status-warn {
+    @apply bg-warning/10 text-warning;
+  }
+  .status-error {
+    @apply bg-destructive/10 text-destructive;
+  }
+  .table-grid th {
+    @apply sticky top-0 border-b border-border bg-surface px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-subtle-foreground;
+  }
+  .table-grid td {
+    @apply border-b border-border/60 px-3 py-1.5 font-mono text-xs;
+  }
+  .table-grid tr:last-child td {
+    @apply border-0;
   }
 }
 

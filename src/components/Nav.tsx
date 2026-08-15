@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useAuth, signOut } from "@/lib/useAuth";
 import { useNavigate } from "@tanstack/react-router";
+import { Github } from "lucide-react";
 
 export function Nav() {
   const auth = useAuth();
@@ -37,7 +38,10 @@ export function Nav() {
             <span className="size-3 bg-primary rounded-sm glow-pulse" /> OPTIQ
           </span>
           <div className="hidden md:flex gap-6 text-sm font-medium text-muted-foreground">
-            <a href="#workspace" className="story-link hover:text-foreground transition-colors">
+            <a
+              href="#workspace-panel"
+              className="story-link hover:text-foreground transition-colors"
+            >
               Optimizer
             </a>
             <a href="#engines" className="story-link hover:text-foreground transition-colors">
@@ -57,18 +61,21 @@ export function Nav() {
               {auth.email}
             </span>
           )}
+          <a
+            href="https://github.com/asisaarav/optiq"
+            target="_blank"
+            rel="noreferrer"
+            aria-label="OPTIQ on GitHub"
+            className="btn btn-sm btn-ghost hidden sm:inline-flex"
+          >
+            <Github className="size-4" aria-hidden="true" />
+          </a>
           {auth.status === "signed-in" ? (
-            <button
-              onClick={handleSignOut}
-              className="press border border-border px-3 py-1.5 rounded text-xs font-semibold hover:border-primary hover:text-primary transition-colors"
-            >
+            <button onClick={handleSignOut} className="btn btn-sm btn-secondary">
               Sign out
             </button>
           ) : (
-            <a
-              href="/auth"
-              className="press sheen bg-foreground text-background px-4 py-1.5 rounded text-sm font-semibold transition-colors hover:bg-primary"
-            >
+            <a href="/auth" className="btn btn-sm btn-primary">
               Sign in
             </a>
           )}

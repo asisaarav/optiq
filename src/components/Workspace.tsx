@@ -13,6 +13,21 @@ import {
   Zap,
 } from "lucide-react";
 import { useServerFn } from "@tanstack/react-start";
+import {
+  SQL_ENGINES,
+  SQL_SAMPLES,
+  PY_SAMPLE,
+  PYSPARK_SAMPLE,
+  escapeHtml,
+  highlight,
+  validate,
+  optimize,
+  type SqlEngine,
+  type Change,
+  type Diagnostic,
+  type Optimization,
+  type ExecutionResult,
+} from "@/lib/optimizer";
 import { ENGINE_TIPS, type Tip, type TipCategory, type TipsKey } from "@/lib/engineTips";
 import { OPEN_DATASETS, loadDataset, buildSampleQuery, type OpenDataset } from "@/lib/openDatasets";
 import { aiOptimize } from "@/lib/aiOptimize.functions";
@@ -57,10 +72,7 @@ function useCappedInput(limit = MAX_EDITOR_CHARS) {
 function LimitNotice({ notice }: { notice: string | null }) {
   if (!notice) return null;
   return (
-    <div
-      role="status"
-      className="px-4 py-1.5 text-[11px] font-mono bg-amber-500/10 text-amber-200 border-b border-border"
-    >
+    <div role="status" className="status-bar status-warn">
       <AlertTriangle className="inline-block size-3 mr-1 -mt-0.5" aria-hidden="true" />
       {notice}
     </div>
@@ -142,955 +154,16 @@ function AiBadge({
 
 type Mode = "SQL" | "PYTHON" | "PYSPARK" | "DATA" | "JSON";
 
-function FormatButton({ onClick, label = "⌁ Beautify" }: { onClick: () => void; label?: string }) {
+function FormatButton({ onClick, label = "Beautify" }: { onClick: () => void; label?: string }) {
   return (
     <button
       onClick={onClick}
-      className="text-xs bg-secondary px-3 py-1 rounded border border-border hover:border-primary hover:text-primary transition-colors"
+      className="btn btn-sm btn-secondary"
       title="Beautify / format the input code (whitespace only — logic untouched)"
     >
       {label}
     </button>
   );
-}
-
-const SQL_ENGINES = [
-  "POSTGRESQL",
-  "MYSQL",
-  "ORACLE",
-  "PL/SQL",
-  "SQL SERVER",
-  "SNOWFLAKE",
-  "BIGQUERY",
-  "REDSHIFT",
-  "DATABRICKS SQL",
-  "CLICKHOUSE",
-] as const;
-type SqlEngine = (typeof SQL_ENGINES)[number];
-type Engine = SqlEngine | "PYTHON" | "PYSPARK";
-
-const SQL_SAMPLES: Record<SqlEngine, string> = {
-  POSTGRESQL: `SELECT u.name, o.total
-FROM users u
-JOIN orders o ON u.id = o.user_id
-WHERE o.created_at > '2023-01-01'
-AND u.status = 'active'
-ORDER BY o.total DESC
-LIMIT 10;`,
-  MYSQL: `SELECT * FROM orders
-WHERE DATE(created_at) = '2024-01-01'
-AND status = 'pending';`,
-  ORACLE: `SELECT e.name, d.dept_name
-FROM employees e, departments d
-WHERE e.dept_id = d.id
-AND ROWNUM <= 100;`,
-  "PL/SQL": `BEGIN
-  FOR r IN (SELECT id FROM orders WHERE status='new') LOOP
-    UPDATE orders SET status='processed' WHERE id = r.id;
-  END LOOP;
-  COMMIT;
-END;`,
-  "SQL SERVER": `SELECT TOP 10 *
-FROM dbo.Orders WITH (NOLOCK)
-WHERE CreatedAt > '2024-01-01';`,
-  SNOWFLAKE: `SELECT * FROM events
-WHERE event_date BETWEEN '2024-01-01' AND '2024-12-31'
-QUALIFY ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY ts DESC) = 1;`,
-  BIGQUERY: `SELECT user_id, COUNT(*) c
-FROM \`proj.ds.events\`
-WHERE _PARTITIONTIME IS NOT NULL
-GROUP BY user_id;`,
-  REDSHIFT: `SELECT * FROM sales
-WHERE region = 'EU'
-ORDER BY revenue DESC;`,
-  "DATABRICKS SQL": `SELECT customer_id, sum(amount)
-FROM bronze.transactions
-WHERE date >= '2024-01-01'
-GROUP BY customer_id;`,
-  CLICKHOUSE: `SELECT user_id, count()
-FROM events
-WHERE event_date >= today() - 30
-GROUP BY user_id
-ORDER BY count() DESC;`,
-};
-
-const PY_SAMPLE = `items = [{"active": True, "value": 3}, {"active": False, "value": 5}, {"active": True, "value": 7}]
-
-result = []
-for i in range(len(items)):
-    if items[i]["active"] == True:
-        result.append(items[i]["value"] * 2)
-total = 0
-for v in result:
-    total = total + v
-print("total:", total)`;
-
-const PYSPARK_SAMPLE = `df = spark.read.parquet("s3://bucket/events")
-df = df.filter(df.country == "US")
-df = df.withColumn("ts", df.ts.cast("timestamp"))
-result = df.groupBy("user_id").count().collect()
-for row in result:
-    print(row)`;
-
-const SQL_KEYWORDS = [
-  "SELECT",
-  "FROM",
-  "JOIN",
-  "INNER JOIN",
-  "LEFT JOIN",
-  "RIGHT JOIN",
-  "ON",
-  "WHERE",
-  "AND",
-  "OR",
-  "NOT",
-  "IN",
-  "ORDER BY",
-  "GROUP BY",
-  "HAVING",
-  "LIMIT",
-  "TOP",
-  "DESC",
-  "ASC",
-  "INSERT",
-  "UPDATE",
-  "DELETE",
-  "SET",
-  "VALUES",
-  "INTO",
-  "AS",
-  "WITH",
-  "CASE",
-  "WHEN",
-  "THEN",
-  "ELSE",
-  "END",
-  "BEGIN",
-  "COMMIT",
-  "ROLLBACK",
-  "FOR",
-  "LOOP",
-  "IF",
-  "BETWEEN",
-  "QUALIFY",
-  "OVER",
-  "PARTITION BY",
-  "ROW_NUMBER",
-  "COUNT",
-  "SUM",
-  "AVG",
-  "MIN",
-  "MAX",
-  "DISTINCT",
-  "FETCH",
-  "FIRST",
-  "ROWS",
-  "ONLY",
-];
-const PY_KEYWORDS = [
-  "def",
-  "return",
-  "for",
-  "in",
-  "while",
-  "if",
-  "elif",
-  "else",
-  "import",
-  "from",
-  "as",
-  "with",
-  "try",
-  "except",
-  "finally",
-  "class",
-  "lambda",
-  "yield",
-  "True",
-  "False",
-  "None",
-  "and",
-  "or",
-  "not",
-  "is",
-  "pass",
-  "break",
-  "continue",
-  "print",
-];
-
-function escapeHtml(s: string) {
-  return s.replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" })[c]!);
-}
-
-/** Tokenizing highlighter — avoids the `class` attribute being re-matched as a keyword. */
-function highlight(code: string, kind: "sql" | "py") {
-  const escaped = escapeHtml(code);
-  const tokens: string[] = [];
-  // Placeholder uses non-digit sentinels (\u0001T…E\u0001) so the numbers regex
-  // below can't accidentally match the index and clobber the original token —
-  // that bug was rendering 'active' as `1` and '2023-01-01' as `0`.
-  const PH = (i: number) => `\u0001T${i}E\u0001`;
-  const stash = (s: string) => {
-    tokens.push(s);
-    return PH(tokens.length - 1);
-  };
-
-  let out = escaped;
-
-  // strings
-  out = out.replace(/'([^'\n]*)'/g, (_m, g) => stash(`<span class="hl-str">'${g}'</span>`));
-  out = out.replace(/&quot;([^\n]*?)&quot;/g, (_m, g) =>
-    stash(`<span class="hl-str">&quot;${g}&quot;</span>`),
-  );
-
-  // comments
-  if (kind === "sql") {
-    out = out.replace(/(--[^\n]*)/g, (m) => stash(`<span class="hl-com">${m}</span>`));
-  } else {
-    out = out.replace(/(#[^\n]*)/g, (m) => stash(`<span class="hl-com">${m}</span>`));
-  }
-
-  // numbers
-  out = out.replace(/\b(\d+(?:\.\d+)?)\b/g, (m) => stash(`<span class="hl-num">${m}</span>`));
-
-  // keywords
-  const kws = kind === "sql" ? SQL_KEYWORDS : PY_KEYWORDS;
-  const kw = [...kws]
-    .sort((a, b) => b.length - a.length)
-    .join("|")
-    .replace(/ /g, "\\s+");
-  const flags = kind === "sql" ? "gi" : "g";
-  out = out.replace(new RegExp(`\\b(${kw})\\b`, flags), (m) =>
-    stash(`<span class="hl-kw">${m}</span>`),
-  );
-
-  // restore tokens (handle nesting by repeating)
-  for (let i = 0; i < 4; i++) {
-    // eslint-disable-next-line no-control-regex -- intentional sentinel placeholders, never user-visible
-    out = out.replace(/\u0001T(\d+)E\u0001/g, (_m, n) => tokens[+n] ?? "");
-  }
-  return out;
-}
-
-type Change = { title: string; detail: string; highlight?: boolean };
-type Diagnostic = { severity: "error" | "warn"; line?: number; message: string };
-type Optimization = {
-  output: string;
-  speedup: number;
-  changes: Change[];
-  diagnostics: Diagnostic[];
-};
-type ExecutionResult = {
-  status: "idle" | "running" | "success" | "error";
-  label: string;
-  rows?: Record<string, unknown>[];
-  output?: string;
-  error?: string;
-  elapsedMs?: number;
-};
-
-function buildHeader(engine: string, changes: Change[]) {
-  return [
-    `# Optimized by Optiq · ${engine}`,
-    `# Applied ${changes.length} change${changes.length === 1 ? "" : "s"}:`,
-    ...changes.map((c, i) => `#   ${i + 1}. ${c.title} — ${c.detail}`),
-  ].join("\n");
-}
-
-function dedupeImports(lines: string[]) {
-  const imports = new Set<string>();
-  const rest: string[] = [];
-  for (const l of lines) {
-    if (/^\s*(import|from)\s+\S/.test(l)) imports.add(l.trim());
-    else rest.push(l);
-  }
-  return { imports: [...imports], rest };
-}
-
-// --- Syntax validators (lightweight, no external parser) ---
-
-function validateBrackets(code: string, lang: "sql" | "py"): Diagnostic[] {
-  const diags: Diagnostic[] = [];
-  const stack: { ch: string; line: number }[] = [];
-  const pairs: Record<string, string> = { ")": "(", "]": "[", "}": "{" };
-  let line = 1;
-  let inStr: string | null = null;
-  let inLineCom = false;
-  for (let i = 0; i < code.length; i++) {
-    const c = code[i];
-    if (c === "\n") {
-      line++;
-      inLineCom = false;
-      continue;
-    }
-    if (inLineCom) continue;
-    if (inStr) {
-      if (c === "\\") {
-        i++;
-        continue;
-      }
-      if (c === inStr) inStr = null;
-      continue;
-    }
-    if (c === "'" || c === '"') {
-      inStr = c;
-      continue;
-    }
-    if (lang === "sql" && c === "-" && code[i + 1] === "-") {
-      inLineCom = true;
-      continue;
-    }
-    if (lang === "py" && c === "#") {
-      inLineCom = true;
-      continue;
-    }
-    if (c === "(" || c === "[" || c === "{") stack.push({ ch: c, line });
-    else if (c === ")" || c === "]" || c === "}") {
-      const top = stack.pop();
-      if (!top || top.ch !== pairs[c]) {
-        diags.push({ severity: "error", line, message: `Unmatched '${c}'` });
-      }
-    }
-  }
-  if (inStr)
-    diags.push({ severity: "error", line, message: `Unterminated string literal (${inStr})` });
-  for (const s of stack)
-    diags.push({ severity: "error", line: s.line, message: `Unclosed '${s.ch}'` });
-  return diags;
-}
-
-function validateSql(code: string): Diagnostic[] {
-  const diags = validateBrackets(code, "sql");
-  const trimmed = code.trim();
-  if (!trimmed) return diags;
-  if (!/;\s*$/.test(trimmed))
-    diags.push({ severity: "warn", message: "Missing trailing semicolon" });
-  if (/\bFORM\b/i.test(code))
-    diags.push({ severity: "error", message: "Typo: 'FORM' — did you mean 'FROM'?" });
-  if (/\bSELCT\b/i.test(code))
-    diags.push({ severity: "error", message: "Typo: 'SELCT' — did you mean 'SELECT'?" });
-  if (/\bWEHRE\b/i.test(code))
-    diags.push({ severity: "error", message: "Typo: 'WEHRE' — did you mean 'WHERE'?" });
-
-  // Strip strings & comments to scan keywords cleanly
-  const stripped = code
-    .replace(/--.*$/gm, "")
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/'(?:[^'\\]|\\.)*'/g, "''");
-
-  // Dangling clause keywords with nothing after them
-  const danglers: { re: RegExp; name: string }[] = [
-    { re: /\bWHERE\b\s*(?:;|$)/im, name: "WHERE" },
-    { re: /\bHAVING\b\s*(?:;|$)/im, name: "HAVING" },
-    { re: /\bGROUP\s+BY\b\s*(?:;|$)/im, name: "GROUP BY" },
-    { re: /\bORDER\s+BY\b\s*(?:;|$)/im, name: "ORDER BY" },
-    { re: /\bFROM\b\s*(?:;|$)/im, name: "FROM" },
-    { re: /\bON\b\s*(?:;|$)/im, name: "ON" },
-    { re: /\bSET\b\s*(?:;|$)/im, name: "SET" },
-    { re: /\bJOIN\b\s*(?:;|$)/im, name: "JOIN" },
-  ];
-  for (const d of danglers) {
-    if (d.re.test(stripped))
-      diags.push({ severity: "error", message: `Dangling '${d.name}' — no expression follows` });
-  }
-
-  // HAVING usage rules
-  if (/\bHAVING\b/i.test(stripped)) {
-    if (!/\bGROUP\s+BY\b/i.test(stripped))
-      diags.push({
-        severity: "error",
-        message: "HAVING used without GROUP BY — use WHERE for non-aggregate filters",
-      });
-    if (!/\b(SUM|AVG|COUNT|MIN|MAX)\s*\(/i.test(stripped))
-      diags.push({
-        severity: "warn",
-        message: "HAVING usually filters aggregates — none detected in query",
-      });
-  }
-
-  // Stranded operators / commas — comma immediately before a clause keyword,
-  // a semicolon, or the very end of input. We do NOT use the /m flag so `$`
-  // only matches end-of-string, otherwise `col,\n  next_col` would false-flag.
-  if (
-    /,\s*(?:FROM|WHERE|GROUP\s+BY|ORDER\s+BY|HAVING|LIMIT|OFFSET|UNION|INTERSECT|EXCEPT)\b/i.test(
-      stripped,
-    ) ||
-    /,\s*(?:;|$)/.test(stripped.replace(/;\s*$/, ";"))
-  )
-    diags.push({ severity: "error", message: "Trailing comma before clause" });
-  if (/\b(AND|OR)\b\s*(?:;|$)/im.test(stripped))
-    diags.push({ severity: "error", message: "Boolean operator with no right-hand expression" });
-  if (/(=|<>|!=|<=|>=|<|>)\s*(?:;|$)/m.test(stripped))
-    diags.push({ severity: "error", message: "Comparison operator with no right-hand value" });
-
-  if (
-    /\bSELECT\b/i.test(stripped) &&
-    !/\bFROM\b/i.test(stripped) &&
-    !/\bSELECT\s+\d/i.test(stripped)
-  ) {
-    diags.push({ severity: "warn", message: "SELECT without FROM" });
-  }
-
-  // Aggregate without GROUP BY when other plain columns are projected
-  const agg = /\b(SUM|AVG|COUNT|MIN|MAX)\s*\(/i.test(stripped);
-  const selMatch = stripped.match(/SELECT\s+([\s\S]*?)\bFROM\b/i);
-  if (agg && selMatch && !/\bGROUP\s+BY\b/i.test(stripped)) {
-    const cols = selMatch[1].split(",").map((c) => c.trim());
-    const hasPlainCol = cols.some(
-      (c) => c && !/\b(SUM|AVG|COUNT|MIN|MAX)\s*\(/i.test(c) && !/^\*$/.test(c) && !/^\d/.test(c),
-    );
-    if (hasPlainCol)
-      diags.push({
-        severity: "error",
-        message: "Aggregate mixed with non-aggregate column without GROUP BY",
-      });
-  }
-
-  return diags;
-}
-
-function normalizeForCompare(s: string) {
-  return s
-    .replace(/--.*$/gm, "")
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/^\s*#.*$/gm, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .toLowerCase();
-}
-
-function validatePython(code: string): Diagnostic[] {
-  const diags = validateBrackets(code, "py");
-  const lines = code.split("\n");
-  lines.forEach((l, idx) => {
-    const ln = idx + 1;
-    const t = l.replace(/#.*$/, "");
-    if (
-      /^\s*(def|class|if|elif|else|for|while|try|except|finally|with|elif)\b[^:]*$/.test(t) &&
-      t.trim() !== ""
-    )
-      diags.push({ severity: "error", line: ln, message: "Missing ':' at end of statement" });
-    if (/^\s*print\s+[^(\s]/.test(t))
-      diags.push({
-        severity: "error",
-        line: ln,
-        message: "`print` is a function — use print(...)",
-      });
-    if (/\bprint\s*\(.*[^)]\s*$/.test(t) && !/[)\\]\s*$/.test(t)) {
-      // unclosed print — caught by bracket validator generally
-    }
-    if (/\t/.test(l) && / {2,}/.test(l))
-      diags.push({ severity: "warn", line: ln, message: "Mixed tabs and spaces" });
-  });
-  return diags;
-}
-
-function validatePySpark(code: string): Diagnostic[] {
-  const diags = validatePython(code);
-  if (/\.collect\(\)/.test(code))
-    diags.push({
-      severity: "warn",
-      message: ".collect() materializes to driver — risky on large data",
-    });
-  if (/\.toPandas\(\)/.test(code))
-    diags.push({ severity: "warn", message: ".toPandas() pulls all rows to driver memory" });
-  return diags;
-}
-
-function validate(code: string, engine: Engine): Diagnostic[] {
-  if (engine === "PYTHON") return validatePython(code);
-  if (engine === "PYSPARK") return validatePySpark(code);
-  return validateSql(code);
-}
-
-function optimizePython(input: string): Optimization {
-  const changes: Change[] = [];
-  const diagnostics = validatePython(input);
-  const lines = input.split("\n");
-  const { imports, rest } = dedupeImports(lines);
-  let body = rest.join("\n");
-
-  // Generic transforms (apply to any code, not just the sample)
-  if (/==\s*True\b/.test(body)) {
-    body = body.replace(/\s*==\s*True\b/g, "");
-    changes.push({ title: "Truthy check", detail: "Dropped `== True` per PEP 8." });
-  }
-  if (/==\s*False\b/.test(body)) {
-    body = body.replace(/(\b\w+(?:\[[^\]]+\])?)\s*==\s*False\b/g, "not $1");
-    changes.push({ title: "Truthy check", detail: "Replaced `== False` with `not`." });
-  }
-  if (/==\s*None\b|!=\s*None\b/.test(body)) {
-    body = body.replace(/==\s*None\b/g, "is None").replace(/!=\s*None\b/g, "is not None");
-    changes.push({ title: "Identity vs None", detail: "Use `is None` / `is not None`." });
-  }
-  if (/len\(\s*(\w+)\s*\)\s*==\s*0/.test(body)) {
-    body = body.replace(/len\(\s*(\w+)\s*\)\s*==\s*0/g, "not $1");
-    changes.push({ title: "Empty check", detail: "Replaced `len(x) == 0` with `not x`." });
-  }
-  if (/len\(\s*(\w+)\s*\)\s*>\s*0/.test(body)) {
-    body = body.replace(/len\(\s*(\w+)\s*\)\s*>\s*0/g, "$1");
-    changes.push({ title: "Non-empty check", detail: "Replaced `len(x) > 0` with `x`." });
-  }
-  if (/range\(\s*0\s*,/.test(body)) {
-    body = body.replace(/range\(\s*0\s*,\s*/g, "range(");
-    changes.push({
-      title: "range() simplified",
-      detail: "Dropped redundant `0,` in `range(0, n)`.",
-    });
-  }
-  // index loop -> comprehension (specific shape)
-  const idxLoop = body.match(
-    /([ \t]*)result\s*=\s*\[\]\s*\n[ \t]*for\s+(\w+)\s+in\s+range\(len\((\w+)\)\):\s*\n([ \t]+)if\s+\3\[\2\]\["?(\w+)"?\]\s*:?\s*\n[ \t]+result\.append\(\3\[\2\]\["?(\w+)"?\]\s*\*\s*(\d+)\)/,
-  );
-  if (idxLoop) {
-    const [, indent, , src, , flag, val, mult] = idxLoop;
-    body = body.replace(
-      idxLoop[0],
-      `${indent}result = [item["${val}"] * ${mult} for item in ${src} if item["${flag}"]]`,
-    );
-    changes.push({
-      title: "List comprehension",
-      detail: "Replaced index-based loop with a comprehension — ~3x faster.",
-      highlight: true,
-    });
-  } else if (/for\s+\w+\s+in\s+range\(len\(\w+\)\):/.test(body)) {
-    body = body.replace(
-      /for\s+(\w+)\s+in\s+range\(len\((\w+)\)\):/g,
-      "for $1, item in enumerate($2):",
-    );
-    changes.push({
-      title: "Use enumerate()",
-      detail: "Replaced `range(len(x))` with `enumerate(x)`.",
-    });
-  }
-  // manual sum accumulator
-  const accum = body.match(
-    /([ \t]*)(\w+)\s*=\s*0\s*\n[ \t]*for\s+(\w+)\s+in\s+(\w+):\s*\n[ \t]+\2\s*=\s*\2\s*\+\s*\3\s*/,
-  );
-  if (accum) {
-    body = body.replace(accum[0], `${accum[1]}${accum[2]} = sum(${accum[4]})`);
-    changes.push({
-      title: "Built-in sum()",
-      detail: "Replaced manual accumulator with `sum()` — C-level loop.",
-      highlight: true,
-    });
-  }
-  // string concat in loop hint
-  if (/for\s+\w+\s+in\s+[^\n:]+:\s*\n[ \t]+\w+\s*\+=\s*['"]/.test(body)) {
-    changes.push({
-      title: "Avoid str += in loop",
-      detail: "Append to a list and `''.join(parts)` after the loop.",
-    });
-  }
-  // .keys() iteration
-  if (/for\s+\w+\s+in\s+\w+\.keys\(\)/.test(body)) {
-    body = body.replace(/for\s+(\w+)\s+in\s+(\w+)\.keys\(\)/g, "for $1 in $2");
-    changes.push({
-      title: "Iterate dict directly",
-      detail: "`for k in d` is equivalent to `for k in d.keys()`.",
-    });
-  }
-  // membership in list -> set if literal long
-  if (/\bin\s+\[(?:[^\]]{30,})\]/.test(body)) {
-    changes.push({
-      title: "Use a set for membership",
-      detail: "Large `x in [...]` is O(n) — convert literal to a `frozenset(...)`.",
-    });
-  }
-  // % formatting / .format
-  if (/\.format\(/.test(body) || /["'][^"']*%[sdif][^"']*["']\s*%/.test(body)) {
-    changes.push({
-      title: "Use f-strings",
-      detail: "f-strings are faster and more readable than `%`/`.format()`.",
-    });
-  }
-  // open without with
-  if (/=\s*open\(/.test(body) && !/with\s+open\(/.test(body)) {
-    changes.push({
-      title: "Use `with open(...)`",
-      detail: "Context managers guarantee the file is closed.",
-    });
-  }
-
-  if (changes.length === 0) {
-    changes.push({
-      title: "Already idiomatic",
-      detail: "No common antipatterns detected — focus on algorithmic complexity.",
-    });
-  }
-
-  const wrapped = wrapPythonMain(body.trim(), changes);
-  const importBlock = imports.length ? imports.join("\n") + "\n\n" : "";
-  const output = `${buildHeader("PYTHON", changes)}\n\n${importBlock}${wrapped}\n`;
-  const realChanged = normalizeForCompare(output) !== normalizeForCompare(input);
-  const speedup = realChanged ? Math.min(70, changes.length * 9) : 0;
-  return { output, speedup, changes, diagnostics };
-}
-
-function wrapPythonMain(body: string, changes: Change[]): string {
-  if (!body) return body;
-  if (/if\s+__name__\s*==\s*["']__main__["']\s*:/.test(body)) return body;
-
-  const rawLines = body.split("\n");
-  const defs: string[] = [];
-  const runtime: string[] = [];
-  let i = 0;
-  while (i < rawLines.length) {
-    const line = rawLines[i];
-    const trimmed = line.trim();
-    const isTopLevel = line.length > 0 && !line.startsWith(" ") && !line.startsWith("\t");
-
-    if (isTopLevel && /^(def |class |@|async def )/.test(trimmed)) {
-      const block = [line];
-      i++;
-      while (
-        i < rawLines.length &&
-        (rawLines[i].startsWith(" ") || rawLines[i].startsWith("\t") || rawLines[i].trim() === "")
-      ) {
-        block.push(rawLines[i]);
-        i++;
-      }
-      while (block.length && block[block.length - 1].trim() === "") block.pop();
-      defs.push(block.join("\n"));
-      continue;
-    }
-    if (isTopLevel && /^[A-Z_][A-Z0-9_]*\s*=/.test(trimmed)) {
-      defs.push(line);
-      i++;
-      continue;
-    }
-    if (trimmed === "") {
-      i++;
-      continue;
-    }
-    runtime.push(line);
-    i++;
-  }
-
-  if (runtime.length === 0) return body;
-  const indented = runtime.map((l) => "    " + l).join("\n");
-  const defsBlock = defs.length ? defs.join("\n\n") + "\n\n\n" : "";
-  changes.push({
-    title: "Wrapped in __main__",
-    detail: 'Guarded runtime with `if __name__ == "__main__":`.',
-  });
-  return `${defsBlock}def main() -> None:\n${indented}\n\n\nif __name__ == "__main__":\n    main()`;
-}
-
-function optimizePySpark(input: string): Optimization {
-  const changes: Change[] = [];
-  const diagnostics = validatePySpark(input);
-  const lines = input.split("\n");
-  const { imports, rest } = dedupeImports(lines);
-
-  let readLine = "";
-  const transforms: string[] = [];
-  const tail: string[] = [];
-  let dfVar = "df";
-
-  for (const raw of rest) {
-    const l = raw.trim();
-    if (!l) continue;
-    const readMatch = l.match(/^(\w+)\s*=\s*spark\.read\.(\w+)\((.+)\)\s*$/);
-    if (readMatch) {
-      dfVar = readMatch[1];
-      readLine = `${dfVar} = (\n    spark.read.${readMatch[2]}(${readMatch[3]})\n`;
-      continue;
-    }
-    const reassign = l.match(new RegExp(`^${dfVar}\\s*=\\s*${dfVar}\\.(\\w+)\\((.*)\\)\\s*$`));
-    if (reassign) {
-      transforms.push(`        .${reassign[1]}(${reassign[2]})`);
-      continue;
-    }
-    if (/\.collect\(\)\s*$/.test(l)) continue;
-    if (/^for\s+\w+\s+in\s+result\s*:/.test(l) || /^\s*print\(row\)/.test(l)) continue;
-    tail.push(l);
-  }
-
-  let body = "";
-  if (readLine && transforms.length) {
-    const filters = transforms.filter((t) => t.startsWith("        .filter("));
-    const others = transforms.filter((t) => !t.startsWith("        .filter("));
-    if (filters.length) {
-      changes.push({
-        title: "Predicate pushdown",
-        detail: "Filters reordered above transforms so Parquet readers prune row groups.",
-        highlight: true,
-      });
-    }
-    body = readLine + [...filters, ...others].join("\n") + "\n)";
-    changes.push({
-      title: "Single chained pipeline",
-      detail: "Combined re-assignments into one chain — Catalyst plans whole-stage codegen.",
-    });
-  } else {
-    body = rest.join("\n").trim();
-  }
-
-  if (/\.collect\(\)/.test(input) && /for\s+\w+\s+in\s+result/.test(input)) {
-    body += `\n\n${dfVar}.show(20, truncate=False)`;
-    changes.push({
-      title: "Avoid .collect()",
-      detail:
-        "Driver-side `collect()` + Python loop replaced with `.show()` — keeps work distributed.",
-      highlight: true,
-    });
-  }
-  if (/\.toPandas\(\)/.test(input)) {
-    changes.push({
-      title: "Avoid .toPandas()",
-      detail: "Pulls all rows to driver. Use Pandas-on-Spark or sample first.",
-    });
-  }
-  if (/withColumn\(.*?\).*\n.*withColumn\(/.test(input)) {
-    changes.push({
-      title: "Batch withColumn",
-      detail: "Multiple `withColumn` calls re-plan each step — use `select(*cols, F.expr(...))`.",
-    });
-  }
-  if (/UserDefinedFunction|udf\(/.test(input)) {
-    changes.push({
-      title: "Replace Python UDF",
-      detail: "Prefer built-in `pyspark.sql.functions` or `pandas_udf` for vectorization.",
-    });
-  }
-  if (/\.repartition\(/.test(input) && !/\.coalesce\(/.test(input)) {
-    changes.push({
-      title: "Coalesce on shrink",
-      detail: "Use `.coalesce(n)` instead of `.repartition(n)` when reducing partitions.",
-    });
-  }
-  if (/groupBy\(/.test(input)) {
-    changes.push({
-      title: "Skew-aware aggregation",
-      detail: "Consider `salt` or AQE skew join hints if the group key is skewed.",
-    });
-  }
-  if (changes.length === 0) {
-    changes.push({ title: "Already idiomatic", detail: "Pipeline looks lazy and chained." });
-  }
-
-  const importBlock = imports.length
-    ? imports.join("\n") + "\n\n"
-    : "from pyspark.sql import SparkSession\nfrom pyspark.sql import functions as F\n\n";
-  const sparkInit = imports.some((i) => i.includes("SparkSession"))
-    ? ""
-    : `spark = SparkSession.builder.appName("optiq").getOrCreate()\n\n`;
-
-  const output = `${buildHeader("PYSPARK", changes)}\n\n${importBlock}${sparkInit}${body}\n`;
-  const realChanged = normalizeForCompare(output) !== normalizeForCompare(input);
-  const speedup = realChanged ? Math.min(75, changes.length * 10) : 0;
-  return { output, speedup, changes, diagnostics };
-}
-
-function optimizeSql(input: string, engine: SqlEngine): Optimization {
-  let output = input.trim();
-  const changes: Change[] = [];
-  const diagnostics = validateSql(input);
-  if (/SELECT\s+\*/i.test(output))
-    changes.push({ title: "Avoid SELECT *", detail: "Specify columns to reduce I/O." });
-  if (/DATE\(\s*\w+\s*\)\s*=/i.test(output)) {
-    output = output.replace(
-      /DATE\(\s*(\w+)\s*\)\s*=\s*'([^']+)'/i,
-      `$1 >= '$2' AND $1 < '$2'::date + 1`,
-    );
-    changes.push({
-      title: "SARGable predicate",
-      detail: "Removed function on indexed column.",
-      highlight: true,
-    });
-  }
-  if (/UPPER\(\s*\w+\s*\)\s*=|LOWER\(\s*\w+\s*\)\s*=/i.test(output)) {
-    changes.push({
-      title: "Function on column",
-      detail: "`UPPER(col)=...` blocks index — store normalized or use functional index.",
-    });
-  }
-  if (/LIKE\s+'%[^%']+%'/i.test(output)) {
-    changes.push({
-      title: "Leading-wildcard LIKE",
-      detail: "`LIKE '%x%'` cannot use B-tree — consider trigram / full-text index.",
-    });
-  }
-  if (/\bOR\b/i.test(output) && /WHERE/i.test(output)) {
-    changes.push({
-      title: "OR → IN / UNION ALL",
-      detail:
-        "Multiple `OR`s on the same column can be `IN (...)`; on different columns use `UNION ALL`.",
-    });
-  }
-  if (/COUNT\(\s*\*\s*\)/i.test(output)) {
-    changes.push({
-      title: "COUNT(*) note",
-      detail: "`COUNT(*)` and `COUNT(1)` are equivalent; `COUNT(col)` skips NULLs.",
-    });
-  }
-  if (/\bUNION\b(?!\s+ALL)/i.test(output)) {
-    output = output.replace(/\bUNION\b(?!\s+ALL)/gi, "UNION ALL");
-    changes.push({
-      title: "UNION ALL",
-      detail:
-        "Skipped distinct-sort by switching `UNION` → `UNION ALL` (verify duplicates are OK).",
-    });
-  }
-  if (/!=|<>/.test(output)) {
-    changes.push({
-      title: "Inequality on indexed col",
-      detail: "`!=` rarely uses an index — rewrite as range or `NOT IN`.",
-    });
-  }
-  if (engine === "ORACLE" && /,\s*\w+\s+\w+\s*\n\s*WHERE/i.test(output)) {
-    changes.push({ title: "Use ANSI JOIN", detail: "Switch to explicit `JOIN ... ON`." });
-  }
-  if (/ROWNUM\s*<=/i.test(output)) {
-    output = output.replace(/AND\s+ROWNUM\s*<=\s*(\d+)/i, "FETCH FIRST $1 ROWS ONLY");
-    changes.push({ title: "FETCH FIRST", detail: "Modern row-limiting clause." });
-  }
-  if (/WITH\s*\(NOLOCK\)/i.test(output)) {
-    changes.push({ title: "NOLOCK warning", detail: "Use READ COMMITTED SNAPSHOT instead." });
-  }
-  if (engine === "BIGQUERY" && /_PARTITIONTIME\s+IS\s+NOT\s+NULL/i.test(output)) {
-    output = output.replace(
-      /_PARTITIONTIME\s+IS\s+NOT\s+NULL/i,
-      "_PARTITIONTIME BETWEEN TIMESTAMP('2024-01-01') AND TIMESTAMP('2024-12-31')",
-    );
-    changes.push({
-      title: "Partition pruning",
-      detail: "Bounded `_PARTITIONTIME` to a range.",
-      highlight: true,
-    });
-  }
-  if (engine === "CLICKHOUSE" && /WHERE/i.test(output)) {
-    changes.push({
-      title: "PREWHERE candidate",
-      detail: "Move date / low-cardinality filter into PREWHERE.",
-    });
-  }
-  if (
-    engine === "PL/SQL" &&
-    /FOR\s+\w+\s+IN\s*\(/i.test(output) &&
-    /UPDATE\s+\w+\s+SET/i.test(output)
-  ) {
-    changes.push({
-      title: "Bulk DML",
-      detail: "Row-by-row cursor loop — rewrite as a single set-based `UPDATE ... WHERE`.",
-      highlight: true,
-    });
-  }
-  if (/JOIN/i.test(output) && /WHERE/i.test(output)) {
-    changes.push({
-      title: "Join order",
-      detail: "Filter the most selective side first; verify with `EXPLAIN`.",
-    });
-  }
-  if (!/LIMIT|TOP|FETCH/i.test(output) && /SELECT/i.test(output)) {
-    changes.push({
-      title: "Add LIMIT",
-      detail: "Unbounded SELECT — cap row count for exploratory queries.",
-    });
-  }
-
-  const realChanged = normalizeForCompare(output) !== normalizeForCompare(input);
-
-  // ── Business-logic safety net ────────────────────────────────────────────
-  // Any literal (string / number) that appeared in the input MUST still appear
-  // in the optimized output. If a rule accidentally changed a value (e.g.
-  // 'active' → 1 or '2023-01-01' → 0), throw the rewrite away and surface a
-  // warning instead of silently shipping wrong logic.
-  const literalsOf = (s: string) => {
-    const lits = new Set<string>();
-    const stringRe = /'((?:[^'\\]|\\.)*)'/g;
-    let m: RegExpExecArray | null;
-    while ((m = stringRe.exec(s))) lits.add(`'${m[1]}'`);
-    const numRe = /(?<![A-Za-z_])-?\d+(?:\.\d+)?/g;
-    while ((m = numRe.exec(s.replace(stringRe, "")))) lits.add(m[0]);
-    return lits;
-  };
-  const inLits = literalsOf(input);
-  const outLits = literalsOf(output);
-  const missing = [...inLits].filter((l) => !outLits.has(l));
-  if (missing.length) {
-    return {
-      output: input.trim(),
-      speedup: 0,
-      changes: [
-        {
-          title: "Rewrite blocked — business logic at risk",
-          detail: `Optimization would change literal(s) ${missing.join(", ")}. Reverting to original query.`,
-          highlight: true,
-        },
-      ],
-      diagnostics: [
-        ...diagnostics,
-        {
-          severity: "warn",
-          message: `Safety guard: literals ${missing.join(", ")} were dropped by a rule — rewrite rejected.`,
-        },
-      ],
-    };
-  }
-
-  if (changes.length === 0) {
-    return {
-      output,
-      speedup: 0,
-      changes: [
-        {
-          title: "No safe rewrite",
-          detail: "Query is already efficient — inspect EXPLAIN for plan-level wins.",
-        },
-      ],
-      diagnostics,
-    };
-  }
-  if (!realChanged) {
-    // Text is unchanged, but the advisory findings are still real: surface them
-    // as review notes with an honest 0% speedup instead of claiming perfection.
-    return {
-      output,
-      speedup: 0,
-      changes: [
-        {
-          title: "Advisory only — query text unchanged",
-          detail: "No mechanical rewrite was safe; apply the findings below by hand.",
-        },
-        ...changes,
-      ],
-      diagnostics,
-    };
-  }
-  const speedup = Math.min(65, changes.length * 8);
-  return { output, speedup, changes, diagnostics };
-}
-
-function optimize(input: string, engine: Engine): Optimization {
-  const safeFallback = (detail: string): Optimization => ({
-    output: input.trim(),
-    changes: [{ title: "Optimizer skipped", detail }],
-    speedup: 0,
-    diagnostics: [],
-  });
-  if (!input.trim()) return safeFallback("Editor is empty — nothing to optimize yet.");
-  try {
-    const result =
-      engine === "PYTHON"
-        ? optimizePython(input.trim())
-        : engine === "PYSPARK"
-          ? optimizePySpark(input.trim())
-          : optimizeSql(input, engine);
-    // Never hand back an empty pane: fall back to the original source.
-    if (!result.output || !result.output.trim()) {
-      return { ...result, output: input.trim(), speedup: 0 };
-    }
-    return result;
-  } catch (e) {
-    return safeFallback(
-      `Original preserved — the rewrite engine hit an internal error (${
-        e instanceof Error ? e.message : String(e)
-      }).`,
-    );
-  }
 }
 
 const SQL_FIXTURES: Record<string, Record<string, unknown>[]> = {
@@ -1588,7 +661,7 @@ async function runSqlLocal(
 
 function Toolbar({ left, right }: { left: React.ReactNode; right: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between px-4 py-2 border-b border-border gap-2 flex-wrap">
+    <div className="flex items-center justify-between gap-2 flex-wrap px-3 py-2 border-b border-border bg-surface-2/60">
       <div className="flex items-center gap-3 min-w-0">{left}</div>
       <div className="flex gap-2 flex-wrap">{right}</div>
     </div>
@@ -1598,7 +671,7 @@ function Toolbar({ left, right }: { left: React.ReactNode; right: React.ReactNod
 function DiagnosticsBar({ diagnostics }: { diagnostics: Diagnostic[] }) {
   if (!diagnostics || diagnostics.length === 0) {
     return (
-      <div className="px-4 py-1.5 text-[11px] font-mono text-emerald-300/80 bg-emerald-500/5 border-b border-border flex items-center gap-2">
+      <div className="status-bar status-ok">
         <span className="size-1.5 rounded-full bg-emerald-400" /> No syntax issues detected
       </div>
     );
@@ -1606,7 +679,7 @@ function DiagnosticsBar({ diagnostics }: { diagnostics: Diagnostic[] }) {
   const errs = diagnostics.filter((d) => d.severity === "error");
   return (
     <div
-      className={`px-4 py-1.5 text-[11px] font-mono border-b border-border space-y-0.5 ${errs.length ? "bg-rose-500/10 text-rose-200" : "bg-amber-500/10 text-amber-200"}`}
+      className={`status-bar flex-col items-start gap-0.5 ${errs.length ? "status-error" : "status-warn"}`}
     >
       {diagnostics.slice(0, 4).map((d, i) => (
         <div key={i} className="flex gap-2">
@@ -1651,7 +724,7 @@ function CodeOutput({
   return (
     <div className="p-4 md:p-6 overflow-auto bg-surface/40 relative min-h-[360px] md:min-h-0 md:h-full">
       <div className="mb-3 flex items-center justify-between gap-3">
-        <div className="text-primary text-[10px] uppercase tracking-widest flex items-center gap-2">
+        <div className="eyebrow text-primary flex items-center gap-2">
           Optimized Output
           <span className="size-1.5 rounded-full bg-primary animate-pulse" />
         </div>
@@ -1685,7 +758,10 @@ function CodeOutput({
           </div>
           {all.map((c, i) => (
             <div key={i} className="flex gap-2">
-              <span className="text-primary/70 select-none">▸</span>
+              <span
+                className="mt-1.5 size-1 shrink-0 rounded-full bg-primary/70"
+                aria-hidden="true"
+              />
               <div className="min-w-0">
                 <span className="font-semibold text-primary">{c.title}:</span>{" "}
                 <span className="text-muted-foreground">{c.detail}</span>
@@ -1705,7 +781,7 @@ function CodeOutput({
             aria-pressed={showDiff}
             className="text-[10px] font-mono uppercase tracking-widest px-2 py-0.5 rounded border border-border text-muted-foreground hover:text-primary hover:border-primary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >
-            {showDiff ? "◧ Hide diff" : "◧ Show diff"}
+            {showDiff ? "Hide diff" : "Show diff"}
           </button>
         </div>
       )}
@@ -1727,7 +803,7 @@ function ExecutionPanel({ result }: { result: ExecutionResult }) {
   return (
     <div className="border-t border-border bg-surface-2/30 p-4">
       <div className="mb-3 flex items-center justify-between gap-3">
-        <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Live Run</div>
+        <div className="eyebrow">Live Run</div>
         <div
           className={`text-[10px] font-mono ${result.status === "error" ? "text-destructive" : result.status === "success" ? "text-primary" : "text-muted-foreground"}`}
         >
@@ -1747,13 +823,11 @@ function ExecutionPanel({ result }: { result: ExecutionResult }) {
         </pre>
       ) : columns.length ? (
         <div className="max-h-[220px] overflow-auto rounded border border-border">
-          <table className="w-full border-collapse text-left font-mono text-xs">
-            <thead className="sticky top-0 bg-secondary text-muted-foreground">
+          <table className="table-grid w-full border-collapse">
+            <thead>
               <tr>
                 {columns.map((col) => (
-                  <th key={col} className="border-b border-border px-3 py-2 font-medium">
-                    {col}
-                  </th>
+                  <th key={col}>{col}</th>
                 ))}
               </tr>
             </thead>
@@ -1761,9 +835,7 @@ function ExecutionPanel({ result }: { result: ExecutionResult }) {
               {rows.map((row, idx) => (
                 <tr key={idx} className="border-b border-border/60 last:border-0">
                   {columns.map((col) => (
-                    <td key={col} className="px-3 py-2 text-foreground">
-                      {String(row[col] ?? "")}
-                    </td>
+                    <td key={col}>{String(row[col] ?? "")}</td>
                   ))}
                 </tr>
               ))}
@@ -1798,19 +870,16 @@ function TipsPanel({ engineKey }: { engineKey: TipsKey }) {
   const filtered = filter === "ALL" ? tips : tips.filter((t) => t.category === filter);
 
   return (
-    <div className="bg-surface/50 p-4 rounded-xl ring-1 ring-border">
+    <div className="panel p-4">
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-xs font-bold uppercase tracking-widest">Engine Tips · {engineKey}</h2>
+        <h2 className="eyebrow">Engine Tips · {engineKey}</h2>
         <span className="text-[10px] text-muted-foreground font-mono">best practices</span>
       </div>
       <div className="flex flex-wrap gap-1 mb-4">
         <button
           onClick={() => setFilter("ALL")}
-          className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${
-            filter === "ALL"
-              ? "bg-primary text-primary-foreground border-primary"
-              : "bg-secondary border-border text-muted-foreground hover:text-foreground"
-          }`}
+          aria-pressed={filter === "ALL"}
+          className="btn btn-sm btn-outline"
         >
           ALL
         </button>
@@ -1818,11 +887,8 @@ function TipsPanel({ engineKey }: { engineKey: TipsKey }) {
           <button
             key={c}
             onClick={() => setFilter(c)}
-            className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${
-              filter === c
-                ? "bg-primary text-primary-foreground border-primary"
-                : "bg-secondary border-border text-muted-foreground hover:text-foreground"
-            }`}
+            aria-pressed={filter === c}
+            className="btn btn-sm btn-outline"
           >
             {c}
           </button>
@@ -1997,7 +1063,7 @@ function SqlPanel() {
 
   return (
     <div className="grid lg:grid-cols-[1fr_320px] gap-6">
-      <div className="flex flex-col bg-surface/50 p-1 rounded-xl ring-1 ring-border">
+      <div className="panel flex flex-col overflow-hidden">
         <Toolbar
           left={
             <>
@@ -2005,7 +1071,7 @@ function SqlPanel() {
                 aria-label="SQL engine"
                 value={engine}
                 onChange={(e) => changeEngine(e.target.value as SqlEngine)}
-                className="px-2 py-1 bg-secondary rounded border border-border text-xs font-mono cursor-pointer outline-none focus:border-primary max-w-[200px]"
+                className="field w-auto max-w-[200px] cursor-pointer py-1"
               >
                 {SQL_ENGINES.map((d) => (
                   <option key={d} value={d}>
@@ -2020,24 +1086,27 @@ function SqlPanel() {
             <>
               <button
                 onClick={() => setShowDatasets((v) => !v)}
-                className={`text-xs px-2 py-1 rounded border ${showDatasets ? "border-primary text-primary" : "border-border text-muted-foreground hover:text-foreground"}`}
+                aria-pressed={showDatasets}
+                className="btn btn-sm btn-outline"
                 title="Load an open dataset (Titanic, Iris, Diamonds, etc.)"
               >
-                {showDatasets ? "− Dataset" : "+ Dataset"}
+                {showDatasets ? "Hide datasets" : "Datasets"}
               </button>
               <button
                 onClick={() => setShowSource((v) => !v)}
-                className={`text-xs px-2 py-1 rounded border ${showSource ? "border-primary text-primary" : "border-border text-muted-foreground hover:text-foreground"}`}
+                aria-pressed={showSource}
+                className="btn btn-sm btn-outline"
                 title="Provide custom schema / sample data"
               >
-                {showSource ? "− Source" : "+ Source"}
+                {showSource ? "Hide source" : "Source"}
               </button>
               <button
                 onClick={() => setShowTests((v) => !v)}
-                className={`text-xs px-2 py-1 rounded border ${showTests ? "border-primary text-primary" : "border-border text-muted-foreground hover:text-foreground"}`}
+                aria-pressed={showTests}
+                className="btn btn-sm btn-outline"
                 title="Define custom test cases"
               >
-                {showTests ? "− Tests" : "+ Tests"}
+                {showTests ? "Hide tests" : "Tests"}
               </button>
               <FormatButton onClick={() => setInput((v) => formatSql(v))} />
               <button
@@ -2046,7 +1115,7 @@ function SqlPanel() {
                   setCopied(true);
                   setTimeout(() => setCopied(false), 1200);
                 }}
-                className="text-xs bg-secondary px-3 py-1 rounded border border-border hover:border-muted-foreground transition-colors"
+                className="btn btn-sm btn-secondary"
               >
                 {copied ? "Copied" : "Copy"}
               </button>
@@ -2056,7 +1125,7 @@ function SqlPanel() {
                   ai.run(engine, input, setResult);
                 }}
                 disabled={ai.loading}
-                className="text-xs bg-primary text-primary-foreground font-bold px-4 py-1 rounded hover:opacity-90 transition disabled:opacity-60"
+                className="btn btn-sm btn-primary"
                 title="Run rule-based + AI optimization"
               >
                 <Sparkles className="inline-block size-3 mr-1.5 -mt-0.5" aria-hidden="true" />
@@ -2072,7 +1141,7 @@ function SqlPanel() {
         {showDatasets && (
           <div className="px-4 py-3 border-b border-border bg-surface-2/40 space-y-2">
             <div className="flex items-center justify-between">
-              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+              <div className="eyebrow">
                 Open datasets · cached in browser · CORS-friendly public CDNs
               </div>
               {datasetStatus && (
@@ -2112,12 +1181,12 @@ function SqlPanel() {
         {showSource && (
           <div className="px-4 py-3 border-b border-border bg-surface-2/40 space-y-2">
             <div className="flex items-center justify-between">
-              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+              <div className="eyebrow">
                 Source data — JSON {`{ "table": [ {row}, … ] }`} (leave empty for auto-generated)
               </div>
               <button
                 onClick={() => setFixturesText(JSON.stringify(buildSmartFixtures(input), null, 2))}
-                className="text-[10px] px-2 py-0.5 rounded border border-border text-muted-foreground hover:text-foreground"
+                className="btn btn-sm btn-ghost"
               >
                 Auto-fill from query
               </button>
@@ -2129,7 +1198,7 @@ function SqlPanel() {
               maxLength={MAX_FIXTURE_CHARS}
               spellCheck={false}
               placeholder='{"users":[{"id":1,"name":"Ada","status":"active"}],"orders":[...]}'
-              className="w-full h-32 bg-secondary/50 border border-border rounded p-2 font-mono text-[11px] outline-none focus:border-primary"
+              className="field h-32 resize-y text-[11px]"
             />
             {fixturesError && (
               <div className="text-[11px] text-rose-300 font-mono inline-flex items-center gap-1">
@@ -2142,7 +1211,7 @@ function SqlPanel() {
         {showTests && (
           <div className="px-4 py-3 border-b border-border bg-surface-2/40 space-y-2">
             <div className="flex items-center justify-between">
-              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+              <div className="eyebrow">
                 Test cases — JSON array · supports{" "}
                 <code className="text-primary">
                   minRows / maxRows / exactRows / contains / notContains
@@ -2151,7 +1220,7 @@ function SqlPanel() {
               <button
                 onClick={runWithTests}
                 disabled={execution.status === "running"}
-                className="text-[10px] px-2 py-0.5 rounded bg-primary text-primary-foreground font-bold disabled:opacity-50"
+                className="btn btn-sm btn-primary"
               >
                 <RunLabel label="Run + Test" />
               </button>
@@ -2162,7 +1231,7 @@ function SqlPanel() {
               onChange={(e) => setTestsText(capText(e.target.value, MAX_FIXTURE_CHARS).value)}
               maxLength={MAX_FIXTURE_CHARS}
               spellCheck={false}
-              className="w-full h-28 bg-secondary/50 border border-border rounded p-2 font-mono text-[11px] outline-none focus:border-primary"
+              className="field h-28 resize-y text-[11px]"
             />
             {testResults && (
               <div className="space-y-1 pt-1 border-t border-border">
@@ -2189,7 +1258,7 @@ function SqlPanel() {
         {progress && (
           <div className="border-t border-primary/30 bg-primary/5 px-4 py-2 flex items-center gap-3">
             <div className="text-[10px] uppercase tracking-widest text-primary font-bold whitespace-nowrap">
-              ▸ {progress.phase}
+              {progress.phase}
             </div>
             <div className="flex-1 h-1.5 rounded-full bg-secondary overflow-hidden">
               <div
@@ -2207,13 +1276,11 @@ function SqlPanel() {
         <div className="grid md:grid-cols-2 md:h-[480px] font-mono text-sm leading-relaxed overflow-hidden">
           <div className="p-4 md:p-6 border-b md:border-b-0 md:border-r border-border overflow-auto bg-surface-2/40 min-h-[360px] md:min-h-0">
             <div className="mb-3 flex items-center justify-between gap-2">
-              <div className="text-muted-foreground text-[10px] uppercase tracking-widest">
-                Input — SQL
-              </div>
+              <div className="eyebrow">Input — SQL</div>
               <button
                 onClick={() => run(undefined, "input")}
                 disabled={execution.status === "running"}
-                className="text-[10px] font-mono px-2 py-0.5 rounded border border-border bg-secondary hover:border-primary hover:text-primary disabled:opacity-50"
+                className="btn btn-sm btn-secondary font-mono"
                 title="Run input query"
               >
                 {execution.status === "running" && runTarget === "input" ? (
@@ -2229,7 +1296,7 @@ function SqlPanel() {
               maxLength={MAX_EDITOR_CHARS}
               onChange={(e) => cap.apply(e.target.value, setInput)}
               spellCheck={false}
-              className="w-full h-[300px] md:h-[calc(100%-1.75rem)] bg-transparent resize-none outline-none text-zinc-300 font-mono text-sm leading-relaxed"
+              className="editor h-[300px] md:h-[calc(100%-1.75rem)]"
             />
           </div>
           <CodeOutput
@@ -2242,7 +1309,7 @@ function SqlPanel() {
               <button
                 onClick={() => run(undefined, "output")}
                 disabled={execution.status === "running" || !result.output}
-                className="text-[10px] font-mono px-2 py-0.5 rounded border border-primary/40 bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-50"
+                className="btn btn-sm btn-outline is-active font-mono"
                 title="Run optimized query"
               >
                 {execution.status === "running" && runTarget === "output" ? (
@@ -2309,7 +1376,7 @@ function PythonPanel() {
 
   return (
     <div className="grid lg:grid-cols-[1fr_320px] gap-6">
-      <div className="flex flex-col bg-surface/50 p-1 rounded-xl ring-1 ring-border">
+      <div className="panel flex flex-col overflow-hidden">
         <Toolbar
           left={
             <span className="text-xs text-muted-foreground font-mono">
@@ -2320,7 +1387,7 @@ function PythonPanel() {
             <>
               <button
                 onClick={() => downloadText("optimized.py", result.output)}
-                className="text-xs bg-secondary px-3 py-1 rounded border border-border hover:border-primary"
+                className="btn btn-sm btn-secondary"
               >
                 <Download className="inline-block size-3 mr-1 -mt-0.5" aria-hidden="true" />
                 .py
@@ -2332,7 +1399,7 @@ function PythonPanel() {
                   setCopied(true);
                   setTimeout(() => setCopied(false), 1200);
                 }}
-                className="text-xs bg-secondary px-3 py-1 rounded border border-border"
+                className="btn btn-sm btn-secondary"
               >
                 {copied ? "Copied" : "Copy"}
               </button>
@@ -2342,7 +1409,7 @@ function PythonPanel() {
                   ai.run("PYTHON", input, setResult);
                 }}
                 disabled={ai.loading}
-                className="text-xs bg-primary text-primary-foreground font-bold px-4 py-1 rounded hover:opacity-90 disabled:opacity-60"
+                className="btn btn-sm btn-primary"
                 title="Run rule-based + AI optimization"
               >
                 <Sparkles className="inline-block size-3 mr-1.5 -mt-0.5" aria-hidden="true" />
@@ -2357,13 +1424,11 @@ function PythonPanel() {
         <div className="grid md:grid-cols-2 md:h-[480px] font-mono text-sm leading-relaxed overflow-hidden">
           <div className="p-4 md:p-6 border-b md:border-b-0 md:border-r border-border overflow-auto bg-surface-2/40 min-h-[360px] md:min-h-0">
             <div className="mb-3 flex items-center justify-between gap-2">
-              <div className="text-muted-foreground text-[10px] uppercase tracking-widest">
-                Input — Python
-              </div>
+              <div className="eyebrow">Input — Python</div>
               <button
                 onClick={() => run("input")}
                 disabled={running !== "idle"}
-                className="text-[10px] font-mono px-2 py-0.5 rounded border border-border bg-secondary hover:border-primary hover:text-primary disabled:opacity-50"
+                className="btn btn-sm btn-secondary font-mono"
                 title="Run input script"
               >
                 {running !== "idle" && runTarget === "input" ? (
@@ -2379,7 +1444,7 @@ function PythonPanel() {
               maxLength={MAX_EDITOR_CHARS}
               onChange={(e) => cap.apply(e.target.value, setInput)}
               spellCheck={false}
-              className="w-full h-[300px] md:h-[calc(100%-1.75rem)] bg-transparent resize-none outline-none text-zinc-300 font-mono text-sm leading-relaxed"
+              className="editor h-[300px] md:h-[calc(100%-1.75rem)]"
             />
           </div>
           <CodeOutput
@@ -2392,7 +1457,7 @@ function PythonPanel() {
               <button
                 onClick={() => run("output")}
                 disabled={running !== "idle" || !result.output}
-                className="text-[10px] font-mono px-2 py-0.5 rounded border border-primary/40 bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-50"
+                className="btn btn-sm btn-outline is-active font-mono"
                 title="Run optimized script"
               >
                 {running !== "idle" && runTarget === "output" ? (
@@ -2405,10 +1470,8 @@ function PythonPanel() {
           />
         </div>
         <div className="border-t border-border p-4 bg-surface-2/30">
-          <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">
-            stdout
-          </div>
-          <pre className="font-mono text-xs text-zinc-300 whitespace-pre-wrap min-h-[60px] max-h-[180px] overflow-auto">
+          <div className="eyebrow mb-2">stdout</div>
+          <pre className="font-mono text-xs text-foreground/90 whitespace-pre-wrap min-h-[60px] max-h-[180px] overflow-auto">
             {stdout || "— run the script to see output —"}
           </pre>
         </div>
@@ -2476,7 +1539,7 @@ function PySparkPanel() {
 
   return (
     <div className="grid lg:grid-cols-[1fr_320px] gap-6">
-      <div className="flex flex-col bg-surface/50 p-1 rounded-xl ring-1 ring-border">
+      <div className="panel flex flex-col overflow-hidden">
         <Toolbar
           left={
             <span className="text-xs text-muted-foreground font-mono">
@@ -2487,13 +1550,14 @@ function PySparkPanel() {
             <>
               <button
                 onClick={() => setShowPlan((v) => !v)}
-                className={`text-xs px-2 py-1 rounded border ${showPlan ? "border-primary text-primary" : "border-border text-muted-foreground hover:text-foreground"}`}
+                aria-pressed={showPlan}
+                className="btn btn-sm btn-outline"
               >
-                {showPlan ? "− Plan" : "+ Plan"}
+                {showPlan ? "Hide plan" : "Plan"}
               </button>
               <button
                 onClick={() => downloadText("optimized.py", result.output)}
-                className="text-xs bg-secondary px-3 py-1 rounded border border-border hover:border-primary"
+                className="btn btn-sm btn-secondary"
               >
                 <Download className="inline-block size-3 mr-1 -mt-0.5" aria-hidden="true" />
                 .py
@@ -2505,7 +1569,7 @@ function PySparkPanel() {
                   setCopied(true);
                   setTimeout(() => setCopied(false), 1200);
                 }}
-                className="text-xs bg-secondary px-3 py-1 rounded border border-border"
+                className="btn btn-sm btn-secondary"
               >
                 {copied ? "Copied" : "Copy"}
               </button>
@@ -2515,7 +1579,7 @@ function PySparkPanel() {
                   ai.run("PYSPARK", input, setResult);
                 }}
                 disabled={ai.loading}
-                className="text-xs bg-primary text-primary-foreground font-bold px-4 py-1 rounded hover:opacity-90 disabled:opacity-60"
+                className="btn btn-sm btn-primary"
                 title="Run rule-based + AI optimization"
               >
                 <Sparkles className="inline-block size-3 mr-1.5 -mt-0.5" aria-hidden="true" />
@@ -2529,16 +1593,14 @@ function PySparkPanel() {
         <LimitNotice notice={cap.notice} />
         <div className="grid md:grid-cols-2 md:h-[520px] font-mono text-sm leading-relaxed overflow-hidden">
           <div className="p-4 md:p-6 border-b md:border-b-0 md:border-r border-border overflow-auto bg-surface-2/40 min-h-[360px] md:min-h-0">
-            <div className="text-muted-foreground mb-3 text-[10px] uppercase tracking-widest">
-              Input — PySpark
-            </div>
+            <div className="eyebrow mb-3">Input — PySpark</div>
             <textarea
               value={input}
               aria-label="PySpark input editor"
               maxLength={MAX_EDITOR_CHARS}
               onChange={(e) => cap.apply(e.target.value, setInput)}
               spellCheck={false}
-              className="w-full h-[300px] md:h-[calc(100%-1.5rem)] bg-transparent resize-none outline-none text-zinc-300 font-mono text-sm leading-relaxed"
+              className="editor h-[300px] md:h-[calc(100%-1.5rem)]"
             />
           </div>
           <CodeOutput
@@ -2552,9 +1614,7 @@ function PySparkPanel() {
         {showPlan && (
           <div className="border-t border-border bg-surface-2/30 p-4">
             <div className="mb-2 flex items-center justify-between">
-              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
-                Derived logical plan · {plan.length} steps
-              </div>
+              <div className="eyebrow">Derived logical plan · {plan.length} steps</div>
               <span className="text-[10px] text-muted-foreground font-mono">
                 spark-submit optimized.py
               </span>
@@ -2567,7 +1627,7 @@ function PySparkPanel() {
                       {String(i + 1).padStart(2, "0")}
                     </span>
                     <span className="text-primary font-bold w-20">{s.op}</span>
-                    <span className="text-zinc-300 truncate">{s.detail}</span>
+                    <span className="text-foreground/90 truncate">{s.detail}</span>
                   </li>
                 ))}
               </ol>
@@ -2856,14 +1916,11 @@ function DataBuilderPanel() {
   return (
     <div className="grid lg:grid-cols-[380px_1fr] gap-6">
       {/* Schema editor */}
-      <div className="bg-surface/50 rounded-xl ring-1 ring-border p-4 flex flex-col gap-3">
+      <div className="panel p-4 flex flex-col gap-3">
         <div className="flex items-center justify-between">
-          <h2 className="text-xs font-bold uppercase tracking-widest">Schema</h2>
-          <button
-            onClick={addField}
-            className="text-xs bg-secondary border border-border px-2 py-1 rounded hover:border-primary"
-          >
-            + Field
+          <h2 className="eyebrow">Schema</h2>
+          <button onClick={addField} className="btn btn-sm btn-secondary">
+            Add field
           </button>
         </div>
         <div className="space-y-2 max-h-[420px] overflow-auto pr-1">
@@ -2873,13 +1930,13 @@ function DataBuilderPanel() {
                 aria-label="Field name"
                 value={f.name}
                 onChange={(e) => updateField(i, { name: e.target.value })}
-                className="bg-secondary border border-border rounded px-2 py-1 text-xs font-mono outline-none focus:border-primary"
+                className="field"
               />
               <select
                 aria-label="Field type"
                 value={f.type}
                 onChange={(e) => updateField(i, { type: e.target.value as FieldType })}
-                className="bg-secondary border border-border rounded px-1 py-1 text-xs font-mono outline-none focus:border-primary"
+                className="field px-1"
               >
                 {FIELD_TYPES.map((t) => (
                   <option key={t} value={t}>
@@ -2898,20 +1955,21 @@ function DataBuilderPanel() {
                       ? "0-100"
                       : ""
                 }
-                className="bg-secondary border border-border rounded px-2 py-1 text-xs font-mono outline-none focus:border-primary"
+                className="field"
               />
               <button
                 onClick={() => removeField(i)}
-                className="text-muted-foreground hover:text-destructive text-sm"
+                aria-label="Remove field"
+                className="btn btn-sm btn-ghost px-1"
               >
-                ×
+                <XIcon className="size-3.5" aria-hidden="true" />
               </button>
             </div>
           ))}
         </div>
 
         <div className="border-t border-border pt-3 space-y-3">
-          <label className="block text-[10px] uppercase tracking-widest text-muted-foreground">
+          <label className="eyebrow block">
             Rows
             <input
               type="number"
@@ -2919,15 +1977,15 @@ function DataBuilderPanel() {
               max={5000}
               value={count}
               onChange={(e) => setCount(clampRows(e.target.value))}
-              className="w-full mt-1 bg-secondary border border-border rounded px-2 py-1 text-xs font-mono outline-none focus:border-primary"
+              className="field mt-1"
             />
           </label>
-          <label className="block text-[10px] uppercase tracking-widest text-muted-foreground">
+          <label className="eyebrow block">
             Format
             <select
               value={format}
               onChange={(e) => setFormat(e.target.value as "json" | "csv" | "sql")}
-              className="w-full mt-1 bg-secondary border border-border rounded px-2 py-1 text-xs font-mono outline-none focus:border-primary"
+              className="field mt-1"
             >
               <option value="json">JSON</option>
               <option value="csv">CSV</option>
@@ -2935,26 +1993,23 @@ function DataBuilderPanel() {
             </select>
           </label>
           {format === "sql" && (
-            <label className="block text-[10px] uppercase tracking-widest text-muted-foreground">
+            <label className="eyebrow block">
               Table name
               <input
                 value={table}
                 onChange={(e) => setTable(e.target.value)}
-                className="w-full mt-1 bg-secondary border border-border rounded px-2 py-1 text-xs font-mono outline-none focus:border-primary"
+                className="field mt-1"
               />
             </label>
           )}
-          <button
-            onClick={generate}
-            className="w-full bg-primary text-primary-foreground font-bold text-xs py-2 rounded hover:opacity-90"
-          >
+          <button onClick={generate} className="btn btn-primary w-full">
             GENERATE {count} ROWS
           </button>
         </div>
       </div>
 
       {/* Output */}
-      <div className="flex flex-col bg-surface/50 p-1 rounded-xl ring-1 ring-border">
+      <div className="panel flex flex-col overflow-hidden">
         <Toolbar
           left={
             <span className="text-xs text-muted-foreground font-mono">
@@ -2969,14 +2024,11 @@ function DataBuilderPanel() {
                   setCopied(true);
                   setTimeout(() => setCopied(false), 1200);
                 }}
-                className="text-xs bg-secondary px-3 py-1 rounded border border-border"
+                className="btn btn-sm btn-secondary"
               >
                 {copied ? "Copied" : "Copy"}
               </button>
-              <button
-                onClick={download}
-                className="text-xs bg-primary text-primary-foreground font-bold px-4 py-1 rounded hover:opacity-90"
-              >
+              <button onClick={download} className="btn btn-sm btn-primary">
                 Download
               </button>
             </>
@@ -3029,18 +2081,16 @@ function JsonPanel() {
   }, [output, input]);
 
   return (
-    <div className="rounded-xl border border-border bg-surface/60 overflow-hidden">
+    <div className="panel overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-border bg-surface-2/50">
-        <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
-          JSON beautifier · formatter · validator
-        </div>
+        <div className="eyebrow">JSON beautifier · formatter · validator</div>
         <div className="flex flex-wrap items-center gap-2">
-          <label className="text-[10px] uppercase tracking-widest text-muted-foreground">
+          <label className="eyebrow">
             Indent
             <select
               value={indent}
               onChange={(e) => setIndent(Number(e.target.value))}
-              className="ml-2 bg-secondary border border-border rounded px-2 py-1 text-xs font-mono text-foreground"
+              className="field ml-2 w-auto py-1"
             >
               <option value={2}>2</option>
               <option value={4}>4</option>
@@ -3049,16 +2099,13 @@ function JsonPanel() {
           </label>
           <button
             onClick={() => apply("pretty", true)}
-            className="text-xs bg-secondary px-3 py-1 rounded border border-border hover:border-primary hover:text-primary"
+            className="btn btn-sm btn-secondary"
             title="Beautify and sort object keys alphabetically"
           >
-            ⇅ Sort keys
+            Sort keys
           </button>
-          <button
-            onClick={() => apply("minify")}
-            className="text-xs bg-secondary px-3 py-1 rounded border border-border hover:border-primary hover:text-primary"
-          >
-            ⤡ Minify
+          <button onClick={() => apply("minify")} className="btn btn-sm btn-secondary">
+            Minify
           </button>
           <button
             onClick={() => {
@@ -3066,26 +2113,23 @@ function JsonPanel() {
               setCopied(true);
               setTimeout(() => setCopied(false), 1200);
             }}
-            className="text-xs bg-secondary px-3 py-1 rounded border border-border hover:border-muted-foreground"
+            className="btn btn-sm btn-secondary"
           >
             {copied ? "Copied" : "Copy"}
           </button>
-          <button
-            onClick={() => apply("pretty")}
-            className="text-xs bg-primary text-primary-foreground font-bold px-4 py-1 rounded hover:opacity-90"
-          >
-            ⌁ BEAUTIFY
+          <button onClick={() => apply("pretty")} className="btn btn-sm btn-primary">
+            Beautify
           </button>
         </div>
       </div>
 
       {error ? (
-        <div className="px-4 py-2 border-b border-border bg-destructive/10 text-destructive text-xs font-mono">
+        <div className="status-bar status-error">
           <XIcon className="inline-block size-3 mr-1 -mt-0.5" aria-hidden="true" />
           {error}
         </div>
       ) : output ? (
-        <div className="px-4 py-2 border-b border-border bg-primary/5 text-primary text-xs font-mono">
+        <div className="status-bar status-ok">
           <Check className="inline-block size-3 mr-1 -mt-0.5" aria-hidden="true" />
           Valid JSON · {stats}
         </div>
@@ -3093,9 +2137,7 @@ function JsonPanel() {
 
       <div className="grid md:grid-cols-2 md:h-[480px] font-mono text-sm leading-relaxed overflow-hidden">
         <div className="p-4 md:p-6 border-b md:border-b-0 md:border-r border-border overflow-auto bg-surface-2/40 min-h-[300px] md:min-h-0">
-          <div className="text-muted-foreground mb-3 text-[10px] uppercase tracking-widest">
-            Input — JSON
-          </div>
+          <div className="eyebrow mb-3">Input — JSON</div>
           {cap.notice && (
             <div role="status" className="mb-2 text-[11px] font-mono text-amber-200">
               <AlertTriangle className="inline-block size-3 mr-1 -mt-0.5" aria-hidden="true" />
@@ -3111,13 +2153,11 @@ function JsonPanel() {
               setError(null);
             }}
             spellCheck={false}
-            className="w-full h-[260px] md:h-[calc(100%-1.5rem)] bg-transparent resize-none outline-none text-zinc-300 font-mono text-sm leading-relaxed"
+            className="editor h-[260px] md:h-[calc(100%-1.5rem)]"
           />
         </div>
         <div className="p-4 md:p-6 overflow-auto min-h-[300px] md:min-h-0">
-          <div className="text-muted-foreground mb-3 text-[10px] uppercase tracking-widest">
-            Formatted output
-          </div>
+          <div className="eyebrow mb-3">Formatted output</div>
           <pre className="whitespace-pre text-primary/90 text-sm leading-relaxed">
             {output || "// Press BEAUTIFY to format and validate your JSON."}
           </pre>
@@ -3143,22 +2183,26 @@ export function Workspace() {
 
   return (
     <div ref={ref} style={{ animation: "fadeIn 0.6s ease-out both" }}>
-      <div role="tablist" aria-label="Optimizer modes" className="flex flex-wrap gap-2 mb-4">
+      <div
+        role="tablist"
+        aria-label="Optimizer modes"
+        className="mb-4 inline-flex flex-wrap gap-1 rounded-lg border border-border bg-surface-2/80 p-1"
+      >
         {TABS.map((t) => (
           <button
             key={t.id}
             role="tab"
             aria-selected={mode === t.id}
             onClick={() => setMode(t.id)}
-            className={`press sheen px-4 py-2 rounded-lg text-sm font-mono font-bold border transition-all duration-300 flex items-center gap-2 ${
+            className={`press relative flex items-center gap-2 rounded-md px-3.5 py-2 text-sm font-semibold transition-colors duration-200 ${
               mode === t.id
-                ? "bg-primary text-primary-foreground border-primary shadow-[0_10px_28px_-18px_var(--primary)] -translate-y-0.5"
-                : "bg-surface/40 border-border text-muted-foreground hover:text-foreground hover:border-muted-foreground hover:-translate-y-0.5"
+                ? "bg-surface text-foreground shadow-[0_1px_0_0_color-mix(in_oklab,white_6%,transparent)_inset,0_6px_18px_-12px_rgb(0_0_0/0.8)] ring-1 ring-border-strong"
+                : "text-muted-foreground hover:text-foreground"
             }`}
           >
             <span>{t.label}</span>
             <span
-              className={`text-[10px] uppercase tracking-widest ${mode === t.id ? "opacity-80" : "text-muted-foreground"}`}
+              className={`text-[10px] font-medium uppercase tracking-wider ${mode === t.id ? "text-primary" : "text-subtle-foreground"}`}
             >
               {t.sub}
             </span>
