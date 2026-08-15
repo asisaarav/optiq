@@ -56,9 +56,7 @@ function AiBadge({
     <div className="px-4 py-1.5 text-[10px] font-mono border-b border-border bg-surface-2/30 flex items-center gap-3">
       {loading && <span className="text-primary animate-pulse">✨ AI optimizing…</span>}
       {!loading && model && (
-        <span className="text-muted-foreground">
-          ✨ {model.split("/").pop()}
-        </span>
+        <span className="text-muted-foreground">✨ {model.split("/").pop()}</span>
       )}
       {warning && <span className="text-amber-400">⚠ {warning}</span>}
       {error && <span className="text-destructive">✕ {error}</span>}
@@ -449,7 +447,11 @@ function validateSql(code: string): Diagnostic[] {
   if (/(=|<>|!=|<=|>=|<|>)\s*(?:;|$)/m.test(stripped))
     diags.push({ severity: "error", message: "Comparison operator with no right-hand value" });
 
-  if (/\bSELECT\b/i.test(stripped) && !/\bFROM\b/i.test(stripped) && !/\bSELECT\s+\d/i.test(stripped)) {
+  if (
+    /\bSELECT\b/i.test(stripped) &&
+    !/\bFROM\b/i.test(stripped) &&
+    !/\bSELECT\s+\d/i.test(stripped)
+  ) {
     diags.push({ severity: "warn", message: "SELECT without FROM" });
   }
 
@@ -956,7 +958,10 @@ function optimizeSql(input: string, engine: SqlEngine): Optimization {
       output,
       speedup: 0,
       changes: [
-        { title: "No safe rewrite", detail: "Query is already efficient — inspect EXPLAIN for plan-level wins." },
+        {
+          title: "No safe rewrite",
+          detail: "Query is already efficient — inspect EXPLAIN for plan-level wins.",
+        },
       ],
       diagnostics,
     };
@@ -966,9 +971,32 @@ function optimizeSql(input: string, engine: SqlEngine): Optimization {
 }
 
 function optimize(input: string, engine: Engine): Optimization {
-  if (engine === "PYTHON") return optimizePython(input.trim());
-  if (engine === "PYSPARK") return optimizePySpark(input.trim());
-  return optimizeSql(input, engine);
+  const safeFallback = (detail: string): Optimization => ({
+    output: input.trim(),
+    changes: [{ title: "Optimizer skipped", detail }],
+    speedup: 0,
+    diagnostics: [],
+  });
+  if (!input.trim()) return safeFallback("Editor is empty — nothing to optimize yet.");
+  try {
+    const result =
+      engine === "PYTHON"
+        ? optimizePython(input.trim())
+        : engine === "PYSPARK"
+          ? optimizePySpark(input.trim())
+          : optimizeSql(input, engine);
+    // Never hand back an empty pane: fall back to the original source.
+    if (!result.output || !result.output.trim()) {
+      return { ...result, output: input.trim(), speedup: 0 };
+    }
+    return result;
+  } catch (e) {
+    return safeFallback(
+      `Original preserved — the rewrite engine hit an internal error (${
+        e instanceof Error ? e.message : String(e)
+      }).`,
+    );
+  }
 }
 
 const SQL_FIXTURES: Record<string, Record<string, unknown>[]> = {
@@ -1168,7 +1196,11 @@ function buildSmartFixtures(query: string): Record<string, Record<string, unknow
   while ((m = predRe.exec(query))) {
     const alias = (m[1] || "").toLowerCase();
     const col = m[2].toLowerCase();
-    if (/^(select|from|join|where|on|and|or|group|order|by|having|as|limit|offset|in|not|is|null|true|false)$/.test(col))
+    if (
+      /^(select|from|join|where|on|and|or|group|order|by|having|as|limit|offset|in|not|is|null|true|false)$/.test(
+        col,
+      )
+    )
       continue;
     const op = m[3].toUpperCase();
     const val = literalValue(m[4]);
@@ -1192,8 +1224,7 @@ function buildSmartFixtures(query: string): Record<string, Record<string, unknow
     const op = m[3].toUpperCase();
     const raw = literalValue(m[4]);
     const colMatch =
-      inner.match(/([a-zA-Z_]\w*)\.([a-zA-Z_]\w*)/) ||
-      inner.match(/\b([a-zA-Z_]\w*)\b\s*\)?\s*$/);
+      inner.match(/([a-zA-Z_]\w*)\.([a-zA-Z_]\w*)/) || inner.match(/\b([a-zA-Z_]\w*)\b\s*\)?\s*$/);
     if (!colMatch) continue;
     const alias = (colMatch.length === 3 ? colMatch[1] : "").toLowerCase();
     const col = (colMatch.length === 3 ? colMatch[2] : colMatch[1]).toLowerCase();
@@ -1204,7 +1235,7 @@ function buildSmartFixtures(query: string): Record<string, Record<string, unknow
     if (!table) continue;
     let val: unknown = raw;
     if (fn === "YEAR" && typeof raw === "number")
-      val = `${raw}-0${1 + (Math.floor(Math.random() * 9))}-15`;
+      val = `${raw}-0${1 + Math.floor(Math.random() * 9)}-15`;
     else if (fn === "MONTH" && typeof raw === "number")
       val = `2024-${String(raw).padStart(2, "0")}-15`;
     else if (fn === "DAY" && typeof raw === "number")
@@ -1230,25 +1261,19 @@ function buildSmartFixtures(query: string): Record<string, Record<string, unknow
       // Make ~80% of rows satisfy each predicate so query returns data
       for (const p of preds) {
         if (Math.random() > 0.2) {
-          const isDateStr =
-            typeof p.val === "string" && /^\d{4}-\d{2}-\d{2}/.test(p.val as string);
+          const isDateStr = typeof p.val === "string" && /^\d{4}-\d{2}-\d{2}/.test(p.val as string);
           if (p.op === "=") r[p.col] = p.val;
           else if (p.op === ">" || p.op === ">=") {
             if (typeof p.val === "number") r[p.col] = (p.val as number) + i + 1;
             else if (isDateStr) {
               const base = new Date(p.val as string).getTime();
-              r[p.col] = new Date(base + (i + 1) * 86400000 * 3)
-                .toISOString()
-                .slice(0, 10);
+              r[p.col] = new Date(base + (i + 1) * 86400000 * 3).toISOString().slice(0, 10);
             } else r[p.col] = p.val;
           } else if (p.op === "<" || p.op === "<=") {
-            if (typeof p.val === "number")
-              r[p.col] = Math.max(0, (p.val as number) - i - 1);
+            if (typeof p.val === "number") r[p.col] = Math.max(0, (p.val as number) - i - 1);
             else if (isDateStr) {
               const base = new Date(p.val as string).getTime();
-              r[p.col] = new Date(base - (i + 1) * 86400000 * 3)
-                .toISOString()
-                .slice(0, 10);
+              r[p.col] = new Date(base - (i + 1) * 86400000 * 3).toISOString().slice(0, 10);
             } else r[p.col] = p.val;
           } else if (p.op === "LIKE" && typeof p.val === "string")
             r[p.col] = p.val.replace(/%/g, `x${i}`);
@@ -1292,6 +1317,14 @@ function extractTableNames(query: string): string[] {
   return [...set].sort();
 }
 
+function friendlySqlError(msg: string): string {
+  if (/Table does not exist|Cannot read propert|undefined/i.test(msg))
+    return `${msg} — a referenced table could not be created from the sample data. Provide a schema/fixtures via "Source" to run it exactly.`;
+  if (/Parse error|SyntaxError/i.test(msg))
+    return `${msg} — the local runner supports standard SELECT syntax; dialect-specific constructs may need simplifying.`;
+  return msg;
+}
+
 async function runSqlLocal(
   query: string,
   customFixtures?: Record<string, Record<string, unknown>[]>,
@@ -1306,72 +1339,153 @@ async function runSqlLocal(
 
   tick("Parsing query", 10);
   await yieldUI();
+
+  if (!query.trim()) {
+    return {
+      status: "error",
+      label: "Nothing to run",
+      error: "The editor is empty — write or paste a query first.",
+      elapsedMs: 0,
+    };
+  }
+
   const tables = extractTableNames(query);
   const cacheKey = tables.join("|");
 
   tick("Loading SQL engine", 25);
-  const alasqlModule = await import("alasql");
-  const alasql = ((alasqlModule as { default?: unknown }).default ?? alasqlModule) as AlSql &
-    ((sql: string) => unknown);
+  let alasql: AlSql & ((sql: string) => unknown);
+  try {
+    const alasqlModule = await import("alasql");
+    alasql = ((alasqlModule as { default?: unknown }).default ?? alasqlModule) as AlSql &
+      ((sql: string) => unknown);
+  } catch (e) {
+    return {
+      status: "error",
+      label: "Engine unavailable",
+      error: `Could not load the in-browser SQL engine: ${
+        e instanceof Error ? e.message : String(e)
+      }`,
+      elapsedMs: performance.now() - started,
+    };
+  }
+  const run = alasql as unknown as (sql: string) => unknown;
+
+  // Always make sure every table the query touches has rows, even when custom
+  // fixtures only cover part of the query.
+  const ensureAllTables = (base: Record<string, Record<string, unknown>[]>) => {
+    const missing = tables.filter((t) => !base[t] || !base[t].length);
+    if (!missing.length) return base;
+    const generated = buildSmartFixtures(query);
+    const merged = { ...base };
+    for (const t of missing) if (generated[t]?.length) merged[t] = generated[t];
+    return merged;
+  };
+
+  const attempt = async (
+    fixtures: Record<string, Record<string, unknown>[]>,
+    sourceLabel: string,
+  ): Promise<ExecutionResult & { rowCount: number }> => {
+    tick("Seeding in-memory DB", 75, `${Object.keys(fixtures).length} tables`);
+    const seedErrors: string[] = [];
+    for (const [table, rows] of Object.entries(fixtures)) {
+      try {
+        run(`DROP TABLE IF EXISTS ${table}`);
+      } catch {
+        /* noop */
+      }
+      try {
+        run(`CREATE TABLE ${table}`);
+        alasql.tables[table].data = rows.map((row) => ({ ...row }));
+      } catch (e) {
+        seedErrors.push(`${table}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    const unseeded = tables.filter((t) => !alasql.tables[t]?.data?.length);
+    if (unseeded.length === tables.length && tables.length > 0) {
+      return {
+        status: "error",
+        label: "No test data available",
+        error: `Could not build sample rows for: ${unseeded.join(", ")}${
+          seedErrors.length ? ` (${seedErrors[0]})` : ""
+        }. Add a schema or sample rows under "Source" and re-run.`,
+        elapsedMs: performance.now() - started,
+        rowCount: 0,
+      };
+    }
+    await yieldUI();
+
+    tick("Executing query", 90);
+    let result: unknown;
+    try {
+      result = run(normalizeSqlForRunner(query));
+    } catch (e) {
+      return {
+        status: "error",
+        label: "SQL runtime error",
+        error: friendlySqlError(e instanceof Error ? e.message : String(e)),
+        elapsedMs: performance.now() - started,
+        rowCount: 0,
+      };
+    }
+    const rows = Array.isArray(result)
+      ? (result as Record<string, unknown>[]).slice(0, 100)
+      : [{ result }];
+    const partial = unseeded.length ? ` · ${unseeded.length} table(s) empty` : "";
+    return {
+      status: "success",
+      label: rows.length
+        ? `${rows.length} row${rows.length === 1 ? "" : "s"} · ${
+            Object.keys(fixtures).length
+          } tables ${sourceLabel}${partial}`
+        : `0 rows · predicates matched no sample data ${sourceLabel}${partial}`,
+      rows,
+      output: JSON.stringify(rows, null, 2),
+      elapsedMs: performance.now() - started,
+      rowCount: rows.length,
+    };
+  };
 
   let fixtures: Record<string, Record<string, unknown>[]>;
-  let fromCache = false;
+  let sourceLabel: string;
+  let regenerable = false;
   if (customFixtures && Object.keys(customFixtures).length) {
-    fixtures = customFixtures;
+    fixtures = ensureAllTables(customFixtures);
+    sourceLabel = "(provided)";
     tick("Using provided fixtures", 55, `${Object.keys(fixtures).length} tables`);
   } else if (cacheKey && FIXTURE_CACHE.has(cacheKey)) {
-    fixtures = FIXTURE_CACHE.get(cacheKey)!;
-    fromCache = true;
-    tick("Reusing cached data", 55, `${tables.join(", ") || "—"}`);
+    fixtures = ensureAllTables(FIXTURE_CACHE.get(cacheKey)!);
+    sourceLabel = "(cached)";
+    regenerable = true;
+    tick("Reusing cached data", 55, tables.join(", ") || "—");
   } else {
     tick("Generating sample data", 45, tables.length ? tables.join(", ") : "auto");
     await yieldUI();
     fixtures = buildSmartFixtures(query);
     if (cacheKey) FIXTURE_CACHE.set(cacheKey, fixtures);
+    sourceLabel = "(generated)";
+    regenerable = true;
     tick("Sample data ready", 65, `${Object.keys(fixtures).length} tables`);
   }
   await yieldUI();
 
-  tick("Seeding in-memory DB", 75);
-  // Use alasql's default database so SELECT resolves tables reliably.
-  // Drop any leftover tables from a previous run, then recreate + load rows.
-  const run = alasql as unknown as (sql: string) => unknown;
-  Object.keys(fixtures).forEach((table) => {
-    try { run(`DROP TABLE IF EXISTS ${table}`); } catch { /* noop */ }
-  });
-  Object.entries(fixtures).forEach(([table, rows]) => {
-    try {
-      run(`CREATE TABLE ${table}`);
-      alasql.tables[table].data = rows.map((row) => ({ ...row }));
-    } catch {
-      /* ignore */
-    }
-  });
-  await yieldUI();
+  let outcome = await attempt(fixtures, sourceLabel);
 
-  tick("Executing query", 90);
-  const normalized = normalizeSqlForRunner(query);
-  let result: unknown;
-  try {
-    result = run(normalized);
-  } catch (e) {
-    tick("Failed", 100);
-    return {
-      status: "error",
-      label: "SQL runtime error",
-      error: e instanceof Error ? e.message : String(e),
-      elapsedMs: performance.now() - started,
-    };
+  // Self-heal: an empty/failed first pass on generated data gets one retry with
+  // freshly generated rows so users never stare at an unexplained empty grid.
+  if (regenerable && (outcome.status === "error" || outcome.rowCount === 0)) {
+    tick("Rebuilding sample data", 80, "retrying with fresh rows");
+    await yieldUI();
+    const fresh = buildSmartFixtures(query);
+    if (cacheKey) FIXTURE_CACHE.set(cacheKey, fresh);
+    const retried = await attempt(fresh, "(regenerated)");
+    if (retried.status === "success" && retried.rowCount > 0) outcome = retried;
+    else if (outcome.status === "error" && retried.status === "success") outcome = retried;
   }
-  const rows = Array.isArray(result) ? (result as Record<string, unknown>[]).slice(0, 100) : [{ result }];
-  tick("Done", 100);
-  return {
-    status: "success",
-    label: `${rows.length} row${rows.length === 1 ? "" : "s"} · ${Object.keys(fixtures).length} tables ${fromCache ? "(cached)" : "(generated)"}`,
-    rows,
-    output: JSON.stringify(rows, null, 2),
-    elapsedMs: performance.now() - started,
-  };
+
+  tick(outcome.status === "error" ? "Failed" : "Done", 100);
+  const { rowCount: _rowCount, ...rest } = outcome;
+  void _rowCount;
+  return rest;
 }
 
 // ------------------------- Pyodide runner -------------------------
@@ -1524,7 +1638,6 @@ function CodeOutput({
     </div>
   );
 }
-
 
 function ExecutionPanel({ result }: { result: ExecutionResult }) {
   const rows = result.rows ?? [];
@@ -1769,7 +1882,6 @@ function SqlPanel() {
     }
   }
 
-
   async function run(specs?: TestSpec[], target: "input" | "output" = runTarget) {
     setRunTarget(target);
     const code = target === "input" ? input : result.output;
@@ -1908,7 +2020,9 @@ function SqlPanel() {
                       {loadingDataset === ds.id ? "…" : `${ds.rows.toLocaleString()} rows`}
                     </div>
                   </div>
-                  <div className="text-[10px] text-muted-foreground mt-0.5 line-clamp-2">{ds.description}</div>
+                  <div className="text-[10px] text-muted-foreground mt-0.5 line-clamp-2">
+                    {ds.description}
+                  </div>
                   <div className="text-[9px] mt-1 flex gap-2 text-muted-foreground/70 font-mono">
                     <span>{ds.domain}</span>
                     <span>·</span>
@@ -1929,11 +2043,7 @@ function SqlPanel() {
                 Source data — JSON {`{ "table": [ {row}, … ] }`} (leave empty for auto-generated)
               </div>
               <button
-                onClick={() =>
-                  setFixturesText(
-                    JSON.stringify(buildSmartFixtures(input), null, 2),
-                  )
-                }
+                onClick={() => setFixturesText(JSON.stringify(buildSmartFixtures(input), null, 2))}
                 className="text-[10px] px-2 py-0.5 rounded border border-border text-muted-foreground hover:text-foreground"
               >
                 Auto-fill from query
@@ -1957,7 +2067,9 @@ function SqlPanel() {
             <div className="flex items-center justify-between">
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
                 Test cases — JSON array · supports{" "}
-                <code className="text-primary">minRows / maxRows / exactRows / contains / notContains</code>
+                <code className="text-primary">
+                  minRows / maxRows / exactRows / contains / notContains
+                </code>
               </div>
               <button
                 onClick={runWithTests}
@@ -2005,7 +2117,8 @@ function SqlPanel() {
               />
             </div>
             <div className="text-[10px] font-mono text-muted-foreground whitespace-nowrap">
-              {progress.detail ? `${progress.detail} · ` : ""}{progress.pct}%
+              {progress.detail ? `${progress.detail} · ` : ""}
+              {progress.pct}%
             </div>
           </div>
         )}
@@ -2056,7 +2169,6 @@ function SqlPanel() {
     </div>
   );
 }
-
 
 // Python panel with Pyodide runner
 function PythonPanel() {
@@ -2172,7 +2284,9 @@ function PythonPanel() {
                 title="Run input script"
               >
                 {running !== "idle" && runTarget === "input"
-                  ? running === "loading" ? "⏳ Loading" : "⏳ Running"
+                  ? running === "loading"
+                    ? "⏳ Loading"
+                    : "⏳ Running"
                   : "▶ Run"}
               </button>
             </div>
@@ -2195,7 +2309,9 @@ function PythonPanel() {
                 title="Run optimized script"
               >
                 {running !== "idle" && runTarget === "output"
-                  ? running === "loading" ? "⏳ Loading" : "⏳ Running"
+                  ? running === "loading"
+                    ? "⏳ Loading"
+                    : "⏳ Running"
                   : "▶ Run"}
               </button>
             }
@@ -2348,7 +2464,9 @@ function PySparkPanel() {
               <ol className="space-y-1 font-mono text-xs">
                 {plan.map((s, i) => (
                   <li key={i} className="flex gap-3">
-                    <span className="text-muted-foreground w-6">{String(i + 1).padStart(2, "0")}</span>
+                    <span className="text-muted-foreground w-6">
+                      {String(i + 1).padStart(2, "0")}
+                    </span>
                     <span className="text-primary font-bold w-20">{s.op}</span>
                     <span className="text-zinc-300 truncate">{s.detail}</span>
                   </li>
@@ -2363,7 +2481,6 @@ function PySparkPanel() {
         )}
       </div>
       <div className="flex flex-col gap-4">
-        
         <TipsPanel engineKey="PYSPARK" />
       </div>
     </div>
