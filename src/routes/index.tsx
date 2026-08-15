@@ -5,6 +5,38 @@ import { Reveal } from "@/components/Reveal";
 
 export const Route = createFileRoute("/")({
   head: () => ({
+    meta: [
+      { title: "Optiq — Live SQL, Python & PySpark code optimizer" },
+      {
+        name: "description",
+        content:
+          "Optimize and run SQL, Python, and PySpark in the browser. 10 SQL engines, live diagnostics, sample-data generation, and engine-specific tuning tips.",
+      },
+      { property: "og:title", content: "Optiq — Live SQL, Python & PySpark code optimizer" },
+      {
+        property: "og:description",
+        content:
+          "Optimize and run SQL, Python, and PySpark in the browser with live diagnostics and engine-specific tuning tips.",
+      },
+      { property: "og:type", content: "website" },
+      { property: "og:url", content: "https://code-optimizer.instaluxe.in/" },
+      { property: "og:image", content: "https://code-optimizer.instaluxe.in/og-optiq.jpg" },
+      { property: "og:image:width", content: "1200" },
+      { property: "og:image:height", content: "630" },
+      {
+        property: "og:image:alt",
+        content: "Optiq — query and script optimizer for SQL, Python and PySpark",
+      },
+      { name: "twitter:card", content: "summary_large_image" },
+      { name: "twitter:title", content: "Optiq — Live SQL, Python & PySpark code optimizer" },
+      {
+        name: "twitter:description",
+        content:
+          "Optimize and run SQL, Python, and PySpark in the browser with live diagnostics and engine-specific tuning tips.",
+      },
+      { name: "twitter:image", content: "https://code-optimizer.instaluxe.in/og-optiq.jpg" },
+    ],
+    links: [{ rel: "canonical", href: "https://code-optimizer.instaluxe.in/" }],
     scripts: [
       {
         type: "application/ld+json",
@@ -44,7 +76,7 @@ function Index() {
   // Re-enable by gating on useAuth() from "@/lib/useAuth".
 
   return (
-    <div className="min-h-screen bg-background text-foreground selection:bg-primary/30">
+    <div className="min-h-dvh bg-background text-foreground selection:bg-primary/30">
       <Nav />
 
       <main>

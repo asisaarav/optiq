@@ -4,6 +4,8 @@ import {
   Check,
   Download,
   Gauge,
+  Loader2,
+  Play,
   Rocket,
   Sparkles,
   Target,
@@ -23,13 +25,25 @@ import {
   MAX_EDITOR_CHARS,
   MAX_FIXTURE_CHARS,
   MAX_JSON_CHARS,
-  MAX_DATA_ROWS,
   capMessage,
   capText,
   clampRows,
 } from "@/lib/limits";
 
 /** Caps a pasted value and returns a user-facing notice when it was trimmed. */
+function RunLabel({ label, busy = false }: { label: string; busy?: boolean }) {
+  return (
+    <span className="inline-flex items-center gap-1">
+      {busy ? (
+        <Loader2 className="size-3 animate-spin" aria-hidden="true" />
+      ) : (
+        <Play className="size-3" aria-hidden="true" />
+      )}
+      {label}
+    </span>
+  );
+}
+
 function useCappedInput(limit = MAX_EDITOR_CHARS) {
   const [notice, setNotice] = useState<string | null>(null);
   function apply(next: string, set: (v: string) => void) {
@@ -1766,24 +1780,6 @@ function ExecutionPanel({ result }: { result: ExecutionResult }) {
   );
 }
 
-function ChangesPanel({ changes }: { changes: Change[] }) {
-  return (
-    <div className="bg-surface/50 p-4 rounded-xl ring-1 ring-border">
-      <h2 className="text-xs font-bold uppercase tracking-widest mb-4">Applied Changes</h2>
-      <div className="space-y-4">
-        {changes.map((c, i) => (
-          <div key={i} className="space-y-1">
-            <div className={`text-sm font-medium ${c.highlight ? "text-primary" : ""}`}>
-              {c.title}
-            </div>
-            <div className="text-xs text-muted-foreground">{c.detail}</div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 const CATEGORY_COLORS: Record<TipCategory, string> = {
   Partitioning: "bg-blue-500/10 text-blue-300 border-blue-500/30",
   Indexing: "bg-emerald-500/10 text-emerald-300 border-emerald-500/30",
@@ -2127,6 +2123,7 @@ function SqlPanel() {
               </button>
             </div>
             <textarea
+              aria-label="Source data JSON"
               value={fixturesText}
               onChange={(e) => setFixturesText(capText(e.target.value, MAX_FIXTURE_CHARS).value)}
               maxLength={MAX_FIXTURE_CHARS}
@@ -2156,10 +2153,11 @@ function SqlPanel() {
                 disabled={execution.status === "running"}
                 className="text-[10px] px-2 py-0.5 rounded bg-primary text-primary-foreground font-bold disabled:opacity-50"
               >
-                ▶ Run + Test
+                <RunLabel label="Run + Test" />
               </button>
             </div>
             <textarea
+              aria-label="Test cases JSON"
               value={testsText}
               onChange={(e) => setTestsText(capText(e.target.value, MAX_FIXTURE_CHARS).value)}
               maxLength={MAX_FIXTURE_CHARS}
@@ -2218,7 +2216,11 @@ function SqlPanel() {
                 className="text-[10px] font-mono px-2 py-0.5 rounded border border-border bg-secondary hover:border-primary hover:text-primary disabled:opacity-50"
                 title="Run input query"
               >
-                {execution.status === "running" && runTarget === "input" ? "⏳ Running" : "▶ Run"}
+                {execution.status === "running" && runTarget === "input" ? (
+                  <RunLabel busy label="Running" />
+                ) : (
+                  <RunLabel label="Run" />
+                )}
               </button>
             </div>
             <textarea
@@ -2243,7 +2245,11 @@ function SqlPanel() {
                 className="text-[10px] font-mono px-2 py-0.5 rounded border border-primary/40 bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-50"
                 title="Run optimized query"
               >
-                {execution.status === "running" && runTarget === "output" ? "⏳ Running" : "▶ Run"}
+                {execution.status === "running" && runTarget === "output" ? (
+                  <RunLabel busy label="Running" />
+                ) : (
+                  <RunLabel label="Run" />
+                )}
               </button>
             }
           />
@@ -2360,11 +2366,11 @@ function PythonPanel() {
                 className="text-[10px] font-mono px-2 py-0.5 rounded border border-border bg-secondary hover:border-primary hover:text-primary disabled:opacity-50"
                 title="Run input script"
               >
-                {running !== "idle" && runTarget === "input"
-                  ? running === "loading"
-                    ? "⏳ Loading"
-                    : "⏳ Running"
-                  : "▶ Run"}
+                {running !== "idle" && runTarget === "input" ? (
+                  <RunLabel busy label={running === "loading" ? "Loading" : "Running"} />
+                ) : (
+                  <RunLabel label="Run" />
+                )}
               </button>
             </div>
             <textarea
@@ -2389,11 +2395,11 @@ function PythonPanel() {
                 className="text-[10px] font-mono px-2 py-0.5 rounded border border-primary/40 bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-50"
                 title="Run optimized script"
               >
-                {running !== "idle" && runTarget === "output"
-                  ? running === "loading"
-                    ? "⏳ Loading"
-                    : "⏳ Running"
-                  : "▶ Run"}
+                {running !== "idle" && runTarget === "output" ? (
+                  <RunLabel busy label={running === "loading" ? "Loading" : "Running"} />
+                ) : (
+                  <RunLabel label="Run" />
+                )}
               </button>
             }
           />
