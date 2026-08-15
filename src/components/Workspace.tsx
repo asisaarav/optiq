@@ -1007,7 +1007,7 @@ function optimizeSql(input: string, engine: SqlEngine): Optimization {
     };
   }
 
-  if (changes.length === 0 || !realChanged) {
+  if (changes.length === 0) {
     return {
       output,
       speedup: 0,
@@ -1016,6 +1016,22 @@ function optimizeSql(input: string, engine: SqlEngine): Optimization {
           title: "No safe rewrite",
           detail: "Query is already efficient — inspect EXPLAIN for plan-level wins.",
         },
+      ],
+      diagnostics,
+    };
+  }
+  if (!realChanged) {
+    // Text is unchanged, but the advisory findings are still real: surface them
+    // as review notes with an honest 0% speedup instead of claiming perfection.
+    return {
+      output,
+      speedup: 0,
+      changes: [
+        {
+          title: "Advisory only — query text unchanged",
+          detail: "No mechanical rewrite was safe; apply the findings below by hand.",
+        },
+        ...changes,
       ],
       diagnostics,
     };
