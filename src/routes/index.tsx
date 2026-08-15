@@ -2,7 +2,6 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Nav } from "@/components/Nav";
 import { Workspace } from "@/components/Workspace";
 
-
 export const Route = createFileRoute("/")({
   head: () => ({
     scripts: [
@@ -25,26 +24,18 @@ export const Route = createFileRoute("/")({
 });
 
 function Index() {
-  // Auth gate temporarily disabled — re-enable after Google OAuth credentials are configured.
-  // const auth = useAuth();
-  // const navigate = useNavigate();
-  // useEffect(() => {
-  //   if (auth.status === "signed-out") navigate({ to: "/auth", replace: true });
-  // }, [auth.status, navigate]);
-  // if (auth.status !== "signed-in") {
-  //   return (
+  // Auth gate is intentionally off until Google OAuth credentials are configured.
+  // Re-enable by gating on useAuth() from "@/lib/useAuth".
+  return (
   //     <div className="min-h-screen flex items-center justify-center bg-background">
   //       <div className="font-mono text-xs text-muted-foreground animate-pulse">Checking session…</div>
   //     </div>
   //   );
   // }
 
-
-
   return (
     <div className="min-h-screen bg-background text-foreground selection:bg-primary/30">
       <Nav />
-
 
       <main>
         {/* Hero + Workspace */}
