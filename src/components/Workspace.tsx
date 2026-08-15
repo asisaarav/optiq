@@ -327,6 +327,7 @@ function highlight(code: string, kind: "sql" | "py") {
 
   // restore tokens (handle nesting by repeating)
   for (let i = 0; i < 4; i++) {
+    // eslint-disable-next-line no-control-regex -- intentional sentinel placeholders, never user-visible
     out = out.replace(/\u0001T(\d+)E\u0001/g, (_m, n) => tokens[+n] ?? "");
   }
   return out;

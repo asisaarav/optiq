@@ -18,6 +18,7 @@ function maskStrings(src: string, comment: "sql" | "py"): Mask {
       : text.replace(/#[^\n]*/g, push);
   return {
     text,
+    // eslint-disable-next-line no-control-regex -- intentional sentinel placeholders, never user-visible
     restore: (s) => s.replace(/\u0000(\d+)\u0000/g, (_, i) => store[Number(i)] ?? ""),
   };
 }
