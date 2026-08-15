@@ -2906,6 +2906,7 @@ const TABS: { id: Mode; label: string; sub: string }[] = [
   { id: "PYTHON", label: "Python", sub: "+ runtime" },
   { id: "PYSPARK", label: "PySpark", sub: "Catalyst-aware" },
   { id: "DATA", label: "Data Builder", sub: "schema → rows" },
+  { id: "JSON", label: "JSON", sub: "beautify · validate" },
 ];
 
 export function Workspace() {
@@ -2939,6 +2940,7 @@ export function Workspace() {
       {mode === "PYTHON" && <PythonPanel />}
       {mode === "PYSPARK" && <PySparkPanel />}
       {mode === "DATA" && <DataBuilderPanel />}
+      {mode === "JSON" && <JsonPanel />}
     </div>
   );
 }
