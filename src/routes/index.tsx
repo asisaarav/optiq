@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Nav } from "@/components/Nav";
 import { Workspace } from "@/components/Workspace";
+import { Reveal } from "@/components/Reveal";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -23,6 +24,21 @@ export const Route = createFileRoute("/")({
   component: Index,
 });
 
+const ENGINE_MARQUEE = [
+  "POSTGRESQL",
+  "MYSQL",
+  "ORACLE",
+  "PL/SQL",
+  "SQL SERVER",
+  "SNOWFLAKE",
+  "BIGQUERY",
+  "REDSHIFT",
+  "DATABRICKS",
+  "CLICKHOUSE",
+  "PYTHON",
+  "PYSPARK",
+] as const;
+
 function Index() {
   // Auth gate is intentionally off until Google OAuth credentials are configured.
   // Re-enable by gating on useAuth() from "@/lib/useAuth".
@@ -33,41 +49,45 @@ function Index() {
 
       <main>
         {/* Hero + Workspace */}
-        <section id="workspace" className="max-w-7xl mx-auto px-6 pt-20 pb-32 scroll-mt-16">
-          <div className="max-w-3xl mb-16" style={{ animation: "fadeIn 0.6s ease-out" }}>
-            <h1 className="text-5xl font-bold tracking-tight mb-6 text-balance">
+        <section
+          id="workspace"
+          className="hero-ambient max-w-7xl mx-auto px-6 pt-20 pb-32 scroll-mt-16"
+        >
+          <div className="grid-veil" aria-hidden="true" />
+          <div className="max-w-3xl mb-14" style={{ animation: "fadeIn 0.7s ease-out both" }}>
+            <div className="inline-flex items-center gap-2 mb-6 rounded-full border border-border bg-surface/60 px-3 py-1 text-[11px] font-mono uppercase tracking-widest text-muted-foreground backdrop-blur">
+              <span className="size-1.5 rounded-full bg-primary glow-pulse" />
+              10 SQL engines · Python · PySpark · live in-browser runtime
+            </div>
+            <h1 className="text-5xl md:text-6xl font-bold tracking-tight mb-6 text-balance leading-[1.05]">
               Live optimizer for{" "}
-              <span className="text-primary">queries, scripts, and data jobs</span>.
+              <span className="text-gradient-brand">queries, scripts, and data jobs</span>
+              <span className="text-primary caret" />
             </h1>
             <p className="text-lg text-muted-foreground text-pretty max-w-[60ch]">
               Paste SQL or Python, run it against an in-browser runtime, catch syntax/runtime
               errors, generate test data, and ship optimized code through the API.
             </p>
           </div>
-          <Workspace />
+          <div style={{ animation: "fadeIn 0.9s ease-out 0.15s both" }}>
+            <Workspace />
+          </div>
         </section>
 
         {/* Engines */}
         <section id="engines" className="border-y border-border py-12 bg-surface-2">
-          <div className="max-w-7xl mx-auto px-6 flex flex-wrap justify-center items-center gap-x-8 gap-y-4 opacity-60">
-            {[
-              "POSTGRESQL",
-              "MYSQL",
-              "ORACLE",
-              "PL/SQL",
-              "SQL SERVER",
-              "SNOWFLAKE",
-              "BIGQUERY",
-              "REDSHIFT",
-              "DATABRICKS",
-              "CLICKHOUSE",
-              "PYTHON",
-              "PYSPARK",
-            ].map((d) => (
-              <span key={d} className="font-mono font-bold text-sm tracking-tight">
-                {d}
-              </span>
-            ))}
+          <div className="marquee max-w-7xl mx-auto px-6">
+            <div className="marquee-track gap-10 opacity-70">
+              {[...ENGINE_MARQUEE, ...ENGINE_MARQUEE].map((d, i) => (
+                <span
+                  key={`${d}-${i}`}
+                  aria-hidden={i >= ENGINE_MARQUEE.length}
+                  className="font-mono font-bold text-sm tracking-tight whitespace-nowrap transition-colors hover:text-primary"
+                >
+                  {d}
+                </span>
+              ))}
+            </div>
           </div>
         </section>
 
@@ -76,7 +96,7 @@ function Index() {
           id="api"
           className="max-w-7xl mx-auto px-6 py-32 grid md:grid-cols-2 gap-16 items-center"
         >
-          <div>
+          <Reveal>
             <h2 className="text-3xl font-bold tracking-tight mb-4">
               Production API, not a placeholder
             </h2>
@@ -88,8 +108,8 @@ function Index() {
             <a href="#workspace" className="text-primary text-sm font-semibold hover:underline">
               Test it in the optimizer →
             </a>
-          </div>
-          <div className="bg-surface rounded-xl ring-1 ring-border p-6">
+          </Reveal>
+          <Reveal delay={120} className="bg-surface rounded-xl ring-1 ring-border p-6 lift sheen">
             <div className="flex items-center gap-2 mb-4">
               <span className="size-3 rounded-full bg-secondary" />
               <span className="size-3 rounded-full bg-secondary" />
@@ -104,15 +124,15 @@ function Index() {
     "code": "SELECT * FROM orders WHERE created_at >= 2024-01-01"
   }'`}
             </pre>
-          </div>
+          </Reveal>
         </section>
 
         {/* Pricing */}
         <section id="pricing" className="max-w-7xl mx-auto px-6 py-32 border-t border-border">
-          <div className="mb-16">
+          <Reveal className="mb-16">
             <h2 className="text-3xl font-bold tracking-tight mb-2">Scale with your data</h2>
             <p className="text-muted-foreground">Choose a plan that fits your engineering team.</p>
-          </div>
+          </Reveal>
           <div className="grid md:grid-cols-4 gap-6">
             {[
               {
@@ -147,10 +167,11 @@ function Index() {
                 cta: "View API",
                 href: "#api",
               },
-            ].map((p) => (
-              <div
+            ].map((p, idx) => (
+              <Reveal
                 key={p.name}
-                className={`p-6 rounded-xl ${p.popular ? "ring-2 ring-primary bg-surface/40" : "ring-1 ring-border bg-surface/20"} relative`}
+                delay={idx * 90}
+                className={`p-6 rounded-xl lift sheen ${p.popular ? "ring-2 ring-primary bg-surface/40" : "ring-1 ring-border bg-surface/20"} relative`}
               >
                 {p.popular && (
                   <div className="absolute -top-3 left-6 px-2 py-0.5 bg-primary text-primary-foreground text-[10px] font-bold rounded">
@@ -179,11 +200,11 @@ function Index() {
                     p.popular
                       ? "bg-primary text-primary-foreground hover:opacity-90"
                       : "border border-border hover:bg-secondary"
-                  } block text-center`}
+                  } block text-center press`}
                 >
                   {p.cta}
                 </a>
-              </div>
+              </Reveal>
             ))}
           </div>
         </section>
