@@ -96,13 +96,17 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       },
       {
         property: "og:image",
-        content:
-          "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/b2d27627-dcc5-47aa-8434-d93d44ca5c66/id-preview-576b383c--e9945844-33eb-477b-b710-2e05a37c5493.lovable.app-1778847551724.png",
+        content: "https://code-optimizer.instaluxe.in/og-optiq.jpg",
+      },
+      { property: "og:image:width", content: "1200" },
+      { property: "og:image:height", content: "630" },
+      {
+        property: "og:image:alt",
+        content: "OPTIQ — query and script optimizer for SQL, Python and PySpark",
       },
       {
         name: "twitter:image",
-        content:
-          "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/b2d27627-dcc5-47aa-8434-d93d44ca5c66/id-preview-576b383c--e9945844-33eb-477b-b710-2e05a37c5493.lovable.app-1778847551724.png",
+        content: "https://code-optimizer.instaluxe.in/og-optiq.jpg",
       },
     ],
     links: [
