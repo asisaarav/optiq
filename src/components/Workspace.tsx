@@ -2075,7 +2075,9 @@ function SqlPanel() {
             </div>
             <textarea
               value={fixturesText}
-              onChange={(e) => setFixturesText(e.target.value)}
+              onChange={(e) => setFixturesText(capText(e.target.value, MAX_FIXTURE_CHARS).value)}
+              maxLength={MAX_FIXTURE_CHARS}
+
               spellCheck={false}
               placeholder='{"users":[{"id":1,"name":"Ada","status":"active"}],"orders":[...]}'
               className="w-full h-32 bg-secondary/50 border border-border rounded p-2 font-mono text-[11px] outline-none focus:border-primary"
@@ -2105,7 +2107,9 @@ function SqlPanel() {
             </div>
             <textarea
               value={testsText}
-              onChange={(e) => setTestsText(e.target.value)}
+              onChange={(e) => setTestsText(capText(e.target.value, MAX_FIXTURE_CHARS).value)}
+              maxLength={MAX_FIXTURE_CHARS}
+
               spellCheck={false}
               className="w-full h-28 bg-secondary/50 border border-border rounded p-2 font-mono text-[11px] outline-none focus:border-primary"
             />
@@ -2164,12 +2168,18 @@ function SqlPanel() {
             </div>
             <textarea
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              aria-label="SQL input editor"
+              maxLength={MAX_EDITOR_CHARS}
+              onChange={(e) => cap.apply(e.target.value, setInput)}
+
               spellCheck={false}
               className="w-full h-[300px] md:h-[calc(100%-1.75rem)] bg-transparent resize-none outline-none text-zinc-300 font-mono text-sm leading-relaxed"
             />
           </div>
           <CodeOutput
+            original={input}
+            optimized={result.output}
+
             html={html}
             speedup={result.speedup}
             changes={result.changes}
@@ -2303,12 +2313,18 @@ function PythonPanel() {
             </div>
             <textarea
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              aria-label="Python input editor"
+              maxLength={MAX_EDITOR_CHARS}
+              onChange={(e) => cap.apply(e.target.value, setInput)}
+
               spellCheck={false}
               className="w-full h-[300px] md:h-[calc(100%-1.75rem)] bg-transparent resize-none outline-none text-zinc-300 font-mono text-sm leading-relaxed"
             />
           </div>
           <CodeOutput
+            original={input}
+            optimized={result.output}
+
             html={html}
             speedup={result.speedup}
             changes={result.changes}
@@ -2454,12 +2470,22 @@ function PySparkPanel() {
             </div>
             <textarea
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              aria-label="PySpark input editor"
+              maxLength={MAX_EDITOR_CHARS}
+              onChange={(e) => cap.apply(e.target.value, setInput)}
+
               spellCheck={false}
               className="w-full h-[300px] md:h-[calc(100%-1.5rem)] bg-transparent resize-none outline-none text-zinc-300 font-mono text-sm leading-relaxed"
             />
           </div>
-          <CodeOutput html={html} speedup={result.speedup} changes={result.changes} />
+          <CodeOutput
+            html={html}
+            speedup={result.speedup}
+            changes={result.changes}
+            original={input}
+            optimized={result.output}
+          />
+
         </div>
         {showPlan && (
           <div className="border-t border-border bg-surface-2/30 p-4">
@@ -2719,7 +2745,9 @@ function DataBuilderPanel() {
 
   function generate() {
     const data: Record<string, unknown>[] = [];
-    for (let i = 0; i < count; i++) {
+    const safeCount = clampRows(count);
+    for (let i = 0; i < safeCount; i++) {
+
       const r: Record<string, unknown> = {};
       for (const f of fields) r[f.name || `col_${i}`] = genValue(f);
       data.push(r);
@@ -2829,7 +2857,7 @@ function DataBuilderPanel() {
               min={1}
               max={5000}
               value={count}
-              onChange={(e) => setCount(+e.target.value || 1)}
+              onChange={(e) => setCount(clampRows(e.target.value))}
               className="w-full mt-1 bg-secondary border border-border rounded px-2 py-1 text-xs font-mono outline-none focus:border-primary"
             />
           </label>
@@ -3064,11 +3092,14 @@ export function Workspace() {
         ))}
       </div>
 
-      {mode === "SQL" && <SqlPanel />}
-      {mode === "PYTHON" && <PythonPanel />}
-      {mode === "PYSPARK" && <PySparkPanel />}
-      {mode === "DATA" && <DataBuilderPanel />}
-      {mode === "JSON" && <JsonPanel />}
+      <PanelBoundary name={`${mode} panel`}>
+        {mode === "SQL" && <SqlPanel />}
+        {mode === "PYTHON" && <PythonPanel />}
+        {mode === "PYSPARK" && <PySparkPanel />}
+        {mode === "DATA" && <DataBuilderPanel />}
+        {mode === "JSON" && <JsonPanel />}
+      </PanelBoundary>
+
     </div>
   );
 }
