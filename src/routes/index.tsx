@@ -61,8 +61,8 @@ function Index() {
             </div>
             <h1 className="text-5xl md:text-6xl font-bold tracking-tight mb-6 text-balance leading-[1.05]">
               Live optimizer for{" "}
-              <span className="text-gradient-brand">queries, scripts, and data jobs</span>
-              <span className="text-primary caret" />
+              <span className="text-gradient-brand">queries, scripts, and data jobs</span>.
+              <span className="caret align-middle" />
             </h1>
             <p className="text-lg text-muted-foreground text-pretty max-w-[60ch]">
               Paste SQL or Python, run it against an in-browser runtime, catch syntax/runtime
