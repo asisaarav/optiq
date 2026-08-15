@@ -174,21 +174,98 @@ function optimizePython(code: string) {
   };
 }
 
+const RATE_LIMIT = 30; // requests
+const RATE_WINDOW_MS = 60_000; // per minute, per IP
+const MAX_BODY_BYTES = 200_000;
+const buckets = new Map<string, { count: number; resetAt: number }>();
+
+function rateLimit(ip: string) {
+  const now = Date.now();
+  const bucket = buckets.get(ip);
+  if (!bucket || bucket.resetAt <= now) {
+    buckets.set(ip, { count: 1, resetAt: now + RATE_WINDOW_MS });
+    if (buckets.size > 5000) {
+      for (const [k, v] of buckets) if (v.resetAt <= now) buckets.delete(k);
+    }
+    return { ok: true, remaining: RATE_LIMIT - 1, retryAfter: 0 };
+  }
+  bucket.count++;
+  if (bucket.count > RATE_LIMIT) {
+    return { ok: false, remaining: 0, retryAfter: Math.ceil((bucket.resetAt - now) / 1000) };
+  }
+  return { ok: true, remaining: RATE_LIMIT - bucket.count, retryAfter: 0 };
+}
+
 export const Route = createFileRoute("/api/public/v1/optimize")({
   server: {
     handlers: {
       OPTIONS: async () => new Response(null, { status: 204, headers: corsHeaders }),
       POST: async ({ request }) => {
+        const ip =
+          request.headers.get("cf-connecting-ip") ??
+          request.headers.get("x-forwarded-for")?.split(",")[0].trim() ??
+          "unknown";
+        const limit = rateLimit(ip);
+        if (!limit.ok) {
+          return Response.json(
+            { error: "Rate limit exceeded — 30 requests per minute per IP." },
+            {
+              status: 429,
+              headers: { ...corsHeaders, "Retry-After": String(limit.retryAfter) },
+            },
+          );
+        }
+
+        const declared = Number(request.headers.get("content-length") ?? 0);
+        if (declared > MAX_BODY_BYTES) {
+          return json({ error: "Payload too large — max 200 KB." }, 413);
+        }
+
+        let body: unknown;
         try {
-          const payload = RequestSchema.parse(await request.json());
+          const text = await request.text();
+          if (text.length > MAX_BODY_BYTES) {
+            return json({ error: "Payload too large — max 200 KB." }, 413);
+          }
+          body = JSON.parse(text);
+        } catch {
+          return json({ error: "Invalid JSON body." }, 400);
+        }
+
+        const parsed = RequestSchema.safeParse(body);
+        if (!parsed.success) {
+          return json(
+            {
+              error: "Invalid request",
+              issues: parsed.error.issues.map((i) => ({
+                path: i.path.join("."),
+                message: i.message,
+              })),
+            },
+            400,
+          );
+        }
+
+        try {
+          const payload = parsed.data;
           const result =
             payload.engine === "python" || payload.engine === "pyspark"
               ? optimizePython(payload.code)
               : optimizeSql(payload.code);
-          return json({ engine: payload.engine, ...result });
-        } catch (error) {
-          const message = error instanceof Error ? error.message : "Invalid request";
-          return json({ error: message }, 400);
+          return Response.json(
+            { engine: payload.engine, ...result },
+            {
+              status: 200,
+              headers: {
+                ...corsHeaders,
+                "X-RateLimit-Limit": String(RATE_LIMIT),
+                "X-RateLimit-Remaining": String(limit.remaining),
+              },
+            },
+          );
+        } catch {
+          // Never leak internals to public callers.
+          return json({ error: "Optimizer failed to process this input." }, 500);
         }
       },
     },
