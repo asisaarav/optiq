@@ -2213,43 +2213,30 @@ function PythonPanel() {
   async function run(target: "input" | "output" = runTarget) {
     setRunTarget(target);
     const code = target === "input" ? input : result.output;
+    if (!code.trim()) {
+      setStdout("[nothing to run] The script is empty.");
+      return;
+    }
     setStdout("");
     setRunning("loading");
-    try {
-      const py = await loadPyodide();
-      setRunning("running");
-      let buf = "";
-      py.setStdout({
-        batched: (s: string) => {
-          buf += s + "\n";
-          setStdout(buf);
-        },
-      });
-      py.setStderr({
-        batched: (s: string) => {
-          buf += s + "\n";
-          setStdout(buf);
-        },
-      });
-      try {
-        if (py.loadPackagesFromImports) {
-          try {
-            await py.loadPackagesFromImports(code);
-          } catch {
-            /* ignore — fall through and let runtime error surface */
-          }
-        }
-        await py.runPythonAsync(code);
-      } catch (e: unknown) {
-        buf += `\n[error] ${e instanceof Error ? e.message : String(e)}`;
-        setStdout(buf);
-      }
-    } catch (e: unknown) {
-      setStdout(`[failed to load runtime] ${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      setRunning("idle");
-    }
+    let buf = "";
+    const append = (line: string) => {
+      buf += line.endsWith("\n") ? line : `${line}\n`;
+      setStdout(buf);
+    };
+    const outcome = await runPythonSandboxed(code, {
+      onStdout: append,
+      onPhase: (phase) => setRunning(phase === "loading" ? "loading" : "running"),
+    });
+    if (outcome.status === "error") append(`\n[error] ${outcome.message ?? "Unknown error"}`);
+    if (outcome.status === "timeout") append(`\n[stopped] ${outcome.message ?? "Timed out"}`);
+    if (outcome.status === "unavailable")
+      append(`\n[runtime unavailable] ${outcome.message ?? "Could not start Python."}`);
+    if (outcome.status === "success" && !buf.trim())
+      append("[done] Script finished with no output — add print() calls to inspect values.");
+    setRunning("idle");
   }
+
 
   return (
     <div className="grid lg:grid-cols-[1fr_320px] gap-6">
