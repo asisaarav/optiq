@@ -966,9 +966,32 @@ function optimizeSql(input: string, engine: SqlEngine): Optimization {
 }
 
 function optimize(input: string, engine: Engine): Optimization {
-  if (engine === "PYTHON") return optimizePython(input.trim());
-  if (engine === "PYSPARK") return optimizePySpark(input.trim());
-  return optimizeSql(input, engine);
+  const safeFallback = (detail: string): Optimization => ({
+    output: input.trim(),
+    changes: [{ title: "Optimizer skipped", detail }],
+    speedup: 0,
+    diagnostics: [],
+  });
+  if (!input.trim()) return safeFallback("Editor is empty — nothing to optimize yet.");
+  try {
+    const result =
+      engine === "PYTHON"
+        ? optimizePython(input.trim())
+        : engine === "PYSPARK"
+          ? optimizePySpark(input.trim())
+          : optimizeSql(input, engine);
+    // Never hand back an empty pane: fall back to the original source.
+    if (!result.output || !result.output.trim()) {
+      return { ...result, output: input.trim(), speedup: 0 };
+    }
+    return result;
+  } catch (e) {
+    return safeFallback(
+      `Original preserved — the rewrite engine hit an internal error (${
+        e instanceof Error ? e.message : String(e)
+      }).`,
+    );
+  }
 }
 
 const SQL_FIXTURES: Record<string, Record<string, unknown>[]> = {
