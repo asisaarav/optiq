@@ -1841,6 +1841,7 @@ function runTests(specs: TestSpec[], exec: ExecutionResult): TestResult[] {
 }
 
 function SqlPanel() {
+  const cap = useCappedInput();
   const [engine, setEngine] = useState<SqlEngine>("POSTGRESQL");
   const [input, setInput] = useState(SQL_SAMPLES.POSTGRESQL);
   const [result, setResult] = useState<Optimization>(() =>
@@ -2019,6 +2020,7 @@ function SqlPanel() {
         />
         <AiBadge loading={ai.loading} error={ai.error} warning={ai.warning} model={ai.model} />
         <DiagnosticsBar diagnostics={liveDiagnostics} />
+        <LimitNotice notice={cap.notice} />
 
         {showDatasets && (
           <div className="px-4 py-3 border-b border-border bg-surface-2/40 space-y-2">
@@ -2206,6 +2208,7 @@ function SqlPanel() {
 
 // Python panel with Pyodide runner
 function PythonPanel() {
+  const cap = useCappedInput();
   const [input, setInput] = useState(PY_SAMPLE);
   const [result, setResult] = useState<Optimization>(() => optimize(PY_SAMPLE, "PYTHON"));
   const [copied, setCopied] = useState(false);
@@ -2292,6 +2295,7 @@ function PythonPanel() {
         />
         <AiBadge loading={ai.loading} error={ai.error} warning={ai.warning} model={ai.model} />
         <DiagnosticsBar diagnostics={liveDiagnostics} />
+        <LimitNotice notice={cap.notice} />
         <div className="grid md:grid-cols-2 md:h-[480px] font-mono text-sm leading-relaxed overflow-hidden">
           <div className="p-4 md:p-6 border-b md:border-b-0 md:border-r border-border overflow-auto bg-surface-2/40 min-h-[360px] md:min-h-0">
             <div className="mb-3 flex items-center justify-between gap-2">
@@ -2400,6 +2404,7 @@ function downloadText(filename: string, text: string) {
 }
 
 function PySparkPanel() {
+  const cap = useCappedInput();
   const [input, setInput] = useState(PYSPARK_SAMPLE);
   const [result, setResult] = useState<Optimization>(() => optimize(PYSPARK_SAMPLE, "PYSPARK"));
   const [copied, setCopied] = useState(false);
@@ -2463,6 +2468,7 @@ function PySparkPanel() {
         />
         <AiBadge loading={ai.loading} error={ai.error} warning={ai.warning} model={ai.model} />
         <DiagnosticsBar diagnostics={liveDiagnostics} />
+        <LimitNotice notice={cap.notice} />
         <div className="grid md:grid-cols-2 md:h-[520px] font-mono text-sm leading-relaxed overflow-hidden">
           <div className="p-4 md:p-6 border-b md:border-b-0 md:border-r border-border overflow-auto bg-surface-2/40 min-h-[360px] md:min-h-0">
             <div className="text-muted-foreground mb-3 text-[10px] uppercase tracking-widest">
@@ -2937,6 +2943,7 @@ function DataBuilderPanel() {
 const JSON_SAMPLE = `{"pipeline":"daily_orders","engine":"databricks","steps":[{"op":"read","path":"s3://lake/orders","format":"delta"},{"op":"filter","expr":"order_date >= '2024-01-01'"},{"op":"aggregate","by":["region"],"metrics":{"revenue":"sum(amount)"}}],"retries":3,"enabled":true}`;
 
 function JsonPanel() {
+  const cap = useCappedInput();
   const [input, setInput] = useState(JSON_SAMPLE);
   const [output, setOutput] = useState("");
   const [error, setError] = useState<string | null>(null);
