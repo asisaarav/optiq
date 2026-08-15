@@ -1,4 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  AlertTriangle,
+  Check,
+  Download,
+  Gauge,
+  Rocket,
+  Sparkles,
+  Target,
+  X as XIcon,
+  Zap,
+} from "lucide-react";
 import { useServerFn } from "@tanstack/react-start";
 import { ENGINE_TIPS, type Tip, type TipCategory, type TipsKey } from "@/lib/engineTips";
 import { OPEN_DATASETS, loadDataset, buildSampleQuery, type OpenDataset } from "@/lib/openDatasets";
@@ -36,7 +47,8 @@ function LimitNotice({ notice }: { notice: string | null }) {
       role="status"
       className="px-4 py-1.5 text-[11px] font-mono bg-amber-500/10 text-amber-200 border-b border-border"
     >
-      ⚠ {notice}
+      <AlertTriangle className="inline-block size-3 mr-1 -mt-0.5" aria-hidden="true" />
+      {notice}
     </div>
   );
 }
@@ -90,12 +102,26 @@ function AiBadge({
   if (!loading && !error && !warning && !model) return null;
   return (
     <div className="px-4 py-1.5 text-[10px] font-mono border-b border-border bg-surface-2/30 flex items-center gap-3">
-      {loading && <span className="text-primary animate-pulse">✨ AI optimizing…</span>}
-      {!loading && model && (
-        <span className="text-muted-foreground">✨ {model.split("/").pop()}</span>
+      {loading && (
+        <span className="text-primary animate-pulse inline-flex items-center gap-1">
+          <Sparkles className="size-3" aria-hidden="true" /> AI optimizing…
+        </span>
       )}
-      {warning && <span className="text-amber-400">⚠ {warning}</span>}
-      {error && <span className="text-destructive">✕ {error}</span>}
+      {!loading && model && (
+        <span className="text-muted-foreground inline-flex items-center gap-1">
+          <Sparkles className="size-3" aria-hidden="true" /> {model.split("/").pop()}
+        </span>
+      )}
+      {warning && (
+        <span className="text-amber-400 inline-flex items-center gap-1">
+          <AlertTriangle className="size-3" aria-hidden="true" /> {warning}
+        </span>
+      )}
+      {error && (
+        <span className="text-destructive inline-flex items-center gap-1">
+          <XIcon className="size-3" aria-hidden="true" /> {error}
+        </span>
+      )}
     </div>
   );
 }
@@ -1602,12 +1628,12 @@ function CodeOutput({
     speedup === undefined
       ? null
       : speedup >= 50
-        ? { face: "🚀", mood: "Big win", tone: "text-primary" }
+        ? { Icon: Rocket, mood: "Big win", tone: "text-primary" }
         : speedup >= 20
-          ? { face: "⚡", mood: "Nice lift", tone: "text-primary" }
+          ? { Icon: Zap, mood: "Nice lift", tone: "text-primary" }
           : speedup > 0
-            ? { face: "🎯", mood: "Tightened", tone: "text-primary" }
-            : { face: "😌", mood: "Already lean", tone: "text-muted-foreground" };
+            ? { Icon: Target, mood: "Tightened", tone: "text-primary" }
+            : { Icon: Gauge, mood: "Already lean", tone: "text-muted-foreground" };
   return (
     <div className="p-4 md:p-6 overflow-auto bg-surface/40 relative min-h-[360px] md:min-h-0 md:h-full">
       <div className="mb-3 flex items-center justify-between gap-3">
@@ -1621,9 +1647,10 @@ function CodeOutput({
               className="group flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-2.5 py-1 transition-all hover:bg-primary/10 hover:scale-[1.02]"
               title={`${emote.mood} — estimated speedup vs. input`}
             >
-              <span className="text-base leading-none transition-transform group-hover:scale-125 group-hover:-rotate-6">
-                {emote.face}
-              </span>
+              <emote.Icon
+                className={`size-3.5 shrink-0 transition-transform group-hover:scale-110 ${emote.tone}`}
+                aria-hidden="true"
+              />
               <div className="flex items-baseline gap-1">
                 <span className={`font-mono font-bold text-sm ${emote.tone}`}>
                   {speedup.toFixed(0)}%
@@ -1652,7 +1679,8 @@ function CodeOutput({
             </div>
           ))}
           <div className="text-[10px] text-muted-foreground/80 pt-1 border-t border-primary/10 mt-1.5">
-            ✓ Literals & predicates preserved — no business-logic drift.
+            <Check className="inline-block size-3 mr-1 -mt-0.5" aria-hidden="true" />
+            Literals &amp; predicates preserved — no business-logic drift.
           </div>
         </div>
       )}
@@ -1921,9 +1949,9 @@ function SqlPanel() {
       setFixturesText(JSON.stringify({ [table]: rows }, null, 2));
       setInput(buildSampleQuery(ds, rows[0]));
       setShowSource(true);
-      setDatasetStatus(`✓ Loaded ${rows.length.toLocaleString()} rows into "${table}"`);
+      setDatasetStatus(`Loaded ${rows.length.toLocaleString()} rows into "${table}"`);
     } catch (e) {
-      setDatasetStatus(`✗ ${e instanceof Error ? e.message : "Failed to load"}`);
+      setDatasetStatus(`Failed: ${e instanceof Error ? e.message : "unable to load dataset"}`);
     } finally {
       setLoadingDataset(null);
     }
@@ -2035,7 +2063,8 @@ function SqlPanel() {
                 className="text-xs bg-primary text-primary-foreground font-bold px-4 py-1 rounded hover:opacity-90 transition disabled:opacity-60"
                 title="Run rule-based + AI optimization"
               >
-                {ai.loading ? "✨ OPTIMIZING…" : "✨ OPTIMIZE"}
+                <Sparkles className="inline-block size-3 mr-1.5 -mt-0.5" aria-hidden="true" />
+                {ai.loading ? "OPTIMIZING…" : "OPTIMIZE"}
               </button>
             </>
           }
@@ -2106,7 +2135,9 @@ function SqlPanel() {
               className="w-full h-32 bg-secondary/50 border border-border rounded p-2 font-mono text-[11px] outline-none focus:border-primary"
             />
             {fixturesError && (
-              <div className="text-[11px] text-rose-300 font-mono">⚠ {fixturesError}</div>
+              <div className="text-[11px] text-rose-300 font-mono inline-flex items-center gap-1">
+                <AlertTriangle className="size-3" aria-hidden="true" /> {fixturesError}
+              </div>
             )}
           </div>
         )}
@@ -2142,7 +2173,9 @@ function SqlPanel() {
                     key={i}
                     className={`text-[11px] font-mono flex gap-2 ${t.passed ? "text-emerald-300" : "text-rose-300"}`}
                   >
-                    <span>{t.passed ? "✓" : "✗"}</span>
+                    <span aria-hidden="true">
+                      {t.passed ? <Check className="size-3" /> : <XIcon className="size-3" />}
+                    </span>
                     <span className="font-bold">{t.name}</span>
                     {t.reason && <span className="opacity-80">— {t.reason}</span>}
                   </div>
@@ -2283,7 +2316,8 @@ function PythonPanel() {
                 onClick={() => downloadText("optimized.py", result.output)}
                 className="text-xs bg-secondary px-3 py-1 rounded border border-border hover:border-primary"
               >
-                ⬇ .py
+                <Download className="inline-block size-3 mr-1 -mt-0.5" aria-hidden="true" />
+                .py
               </button>
               <FormatButton onClick={() => setInput((v) => formatPython(v))} />
               <button
@@ -2305,7 +2339,8 @@ function PythonPanel() {
                 className="text-xs bg-primary text-primary-foreground font-bold px-4 py-1 rounded hover:opacity-90 disabled:opacity-60"
                 title="Run rule-based + AI optimization"
               >
-                {ai.loading ? "✨ OPTIMIZING…" : "✨ OPTIMIZE"}
+                <Sparkles className="inline-block size-3 mr-1.5 -mt-0.5" aria-hidden="true" />
+                {ai.loading ? "OPTIMIZING…" : "OPTIMIZE"}
               </button>
             </>
           }
@@ -2454,7 +2489,8 @@ function PySparkPanel() {
                 onClick={() => downloadText("optimized.py", result.output)}
                 className="text-xs bg-secondary px-3 py-1 rounded border border-border hover:border-primary"
               >
-                ⬇ .py
+                <Download className="inline-block size-3 mr-1 -mt-0.5" aria-hidden="true" />
+                .py
               </button>
               <FormatButton onClick={() => setInput((v) => formatPySpark(v))} />
               <button
@@ -2476,7 +2512,8 @@ function PySparkPanel() {
                 className="text-xs bg-primary text-primary-foreground font-bold px-4 py-1 rounded hover:opacity-90 disabled:opacity-60"
                 title="Run rule-based + AI optimization"
               >
-                {ai.loading ? "✨ OPTIMIZING…" : "✨ OPTIMIZE"}
+                <Sparkles className="inline-block size-3 mr-1.5 -mt-0.5" aria-hidden="true" />
+                {ai.loading ? "OPTIMIZING…" : "OPTIMIZE"}
               </button>
             </>
           }
@@ -3038,11 +3075,13 @@ function JsonPanel() {
 
       {error ? (
         <div className="px-4 py-2 border-b border-border bg-destructive/10 text-destructive text-xs font-mono">
-          ✗ {error}
+          <XIcon className="inline-block size-3 mr-1 -mt-0.5" aria-hidden="true" />
+          {error}
         </div>
       ) : output ? (
         <div className="px-4 py-2 border-b border-border bg-primary/5 text-primary text-xs font-mono">
-          ✓ Valid JSON · {stats}
+          <Check className="inline-block size-3 mr-1 -mt-0.5" aria-hidden="true" />
+          Valid JSON · {stats}
         </div>
       ) : null}
 
@@ -3053,7 +3092,8 @@ function JsonPanel() {
           </div>
           {cap.notice && (
             <div role="status" className="mb-2 text-[11px] font-mono text-amber-200">
-              ⚠ {cap.notice}
+              <AlertTriangle className="inline-block size-3 mr-1 -mt-0.5" aria-hidden="true" />
+              {cap.notice}
             </div>
           )}
           <textarea
