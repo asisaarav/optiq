@@ -26,12 +26,8 @@ export const Route = createFileRoute("/")({
 function Index() {
   // Auth gate is intentionally off until Google OAuth credentials are configured.
   // Re-enable by gating on useAuth() from "@/lib/useAuth".
-  return (
-  //     <div className="min-h-screen flex items-center justify-center bg-background">
-  //       <div className="font-mono text-xs text-muted-foreground animate-pulse">Checking session…</div>
-  //     </div>
-  //   );
-  // }
+
+
 
   return (
     <div className="min-h-screen bg-background text-foreground selection:bg-primary/30">
