@@ -11,7 +11,6 @@ type AiResult = {
   model: string;
 };
 
-
 export const aiOptimize = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => AiInput.parse(d))
   .handler(async ({ data }): Promise<AiResult> => {

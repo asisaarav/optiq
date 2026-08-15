@@ -46,7 +46,10 @@ export function safetyCheck(input: string, output: string): string | undefined {
   const I = norm(input);
   const O = norm(output);
   const count = (s: string, re: RegExp) => (s.match(re) || []).length;
-  if (count(O, /\bLEFT JOIN\b/g) > count(I, /\bLEFT JOIN\b/g) && /\bINNER JOIN\b|\bJOIN\b/.test(I)) {
+  if (
+    count(O, /\bLEFT JOIN\b/g) > count(I, /\bLEFT JOIN\b/g) &&
+    /\bINNER JOIN\b|\bJOIN\b/.test(I)
+  ) {
     return "Rejected: JOIN type changed (INNER→LEFT) — would change row semantics.";
   }
   if (/\bSELECT DISTINCT\b/.test(O) && !/\bSELECT DISTINCT\b/.test(I)) {
