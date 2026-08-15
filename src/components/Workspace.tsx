@@ -5,6 +5,7 @@ import { OPEN_DATASETS, loadDataset, buildSampleQuery, type OpenDataset } from "
 import { aiOptimize } from "@/lib/aiOptimize.functions";
 import { formatSql, formatPython, formatPySpark, formatJson, sortJsonKeys } from "@/lib/formatters";
 import { PanelBoundary } from "@/components/PanelBoundary";
+import { Skeleton } from "@/components/ui/skeleton";
 import { DiffView } from "@/components/DiffView";
 import { runPythonSandboxed } from "@/lib/pyRunner";
 import {
@@ -1677,7 +1678,13 @@ function ExecutionPanel({ result }: { result: ExecutionResult }) {
           {result.elapsedMs !== undefined ? ` · ${result.elapsedMs.toFixed(1)}ms` : ""}
         </div>
       </div>
-      {result.status === "error" ? (
+      {result.status === "running" ? (
+        <div className="space-y-2" aria-busy="true" aria-live="polite">
+          {[0, 1, 2, 3].map((i) => (
+            <Skeleton key={i} className="h-4 w-full" style={{ opacity: 1 - i * 0.2 }} />
+          ))}
+        </div>
+      ) : result.status === "error" ? (
         <pre className="min-h-[72px] max-h-[180px] overflow-auto whitespace-pre-wrap font-mono text-xs text-destructive">
           {result.error}
         </pre>
