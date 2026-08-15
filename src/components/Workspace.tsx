@@ -4,6 +4,42 @@ import { ENGINE_TIPS, type Tip, type TipCategory, type TipsKey } from "@/lib/eng
 import { OPEN_DATASETS, loadDataset, buildSampleQuery, type OpenDataset } from "@/lib/openDatasets";
 import { aiOptimize } from "@/lib/aiOptimize.functions";
 import { formatSql, formatPython, formatPySpark, formatJson, sortJsonKeys } from "@/lib/formatters";
+import { PanelBoundary } from "@/components/PanelBoundary";
+import { DiffView } from "@/components/DiffView";
+import { runPythonSandboxed } from "@/lib/pyRunner";
+import {
+  MAX_EDITOR_CHARS,
+  MAX_FIXTURE_CHARS,
+  MAX_JSON_CHARS,
+  MAX_DATA_ROWS,
+  capMessage,
+  capText,
+  clampRows,
+} from "@/lib/limits";
+
+/** Caps a pasted value and returns a user-facing notice when it was trimmed. */
+function useCappedInput(limit = MAX_EDITOR_CHARS) {
+  const [notice, setNotice] = useState<string | null>(null);
+  function apply(next: string, set: (v: string) => void) {
+    const capped = capText(next, limit);
+    set(capped.value);
+    setNotice(capped.truncated ? capMessage(capped.limit) : null);
+  }
+  return { notice, apply };
+}
+
+function LimitNotice({ notice }: { notice: string | null }) {
+  if (!notice) return null;
+  return (
+    <div
+      role="status"
+      className="px-4 py-1.5 text-[11px] font-mono bg-amber-500/10 text-amber-200 border-b border-border"
+    >
+      ⚠ {notice}
+    </div>
+  );
+}
+
 
 function useAiOptimizer() {
   const fn = useServerFn(aiOptimize);
@@ -1488,42 +1524,8 @@ async function runSqlLocal(
   return rest;
 }
 
-// ------------------------- Pyodide runner -------------------------
+// Python execution runs in a sandboxed Web Worker — see src/lib/pyRunner.ts.
 
-type PyodideRuntime = {
-  setStdout: (options: { batched: (text: string) => void }) => void;
-  setStderr: (options: { batched: (text: string) => void }) => void;
-  runPythonAsync: (code: string) => Promise<unknown>;
-  loadPackagesFromImports?: (code: string) => Promise<void>;
-};
-
-type PyodideLoader = (options: { indexURL: string }) => Promise<PyodideRuntime>;
-
-type PyodideWindow = Window & { loadPyodide?: PyodideLoader };
-
-let pyodidePromise: Promise<PyodideRuntime> | null = null;
-function loadPyodide(): Promise<PyodideRuntime> {
-  if (pyodidePromise) return pyodidePromise;
-  pyodidePromise = new Promise((resolve, reject) => {
-    const w = window as PyodideWindow;
-    if (w.loadPyodide) {
-      w.loadPyodide({ indexURL: "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/" }).then(
-        resolve,
-        reject,
-      );
-      return;
-    }
-    const s = document.createElement("script");
-    s.src = "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js";
-    s.onload = () =>
-      (window as PyodideWindow).loadPyodide!({
-        indexURL: "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/",
-      }).then(resolve, reject);
-    s.onerror = () => reject(new Error("Failed to load Pyodide"));
-    document.head.appendChild(s);
-  });
-  return pyodidePromise;
-}
 
 // ------------------------- UI components -------------------------
 
@@ -1566,13 +1568,19 @@ function CodeOutput({
   speedup,
   changes,
   headerRight,
+  original,
+  optimized,
 }: {
   html: string;
   speedup?: number;
   changes?: Change[];
   headerRight?: React.ReactNode;
+  original?: string;
+  optimized?: string;
 }) {
+  const [showDiff, setShowDiff] = useState(false);
   const all = changes ?? [];
+
   const emote =
     speedup === undefined
       ? null
@@ -1631,10 +1639,26 @@ function CodeOutput({
           </div>
         </div>
       )}
-      <pre
-        className="text-foreground whitespace-pre-wrap pr-2 font-mono text-sm leading-relaxed"
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
+      {original !== undefined && optimized !== undefined && (
+        <div className="mb-3">
+          <button
+            onClick={() => setShowDiff((v) => !v)}
+            aria-pressed={showDiff}
+            className="text-[10px] font-mono uppercase tracking-widest px-2 py-0.5 rounded border border-border text-muted-foreground hover:text-primary hover:border-primary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          >
+            {showDiff ? "◧ Hide diff" : "◧ Show diff"}
+          </button>
+        </div>
+      )}
+      {showDiff && original !== undefined && optimized !== undefined ? (
+        <DiffView original={original} optimized={optimized} />
+      ) : (
+        <pre
+          className="text-foreground whitespace-pre-wrap pr-2 font-mono text-sm leading-relaxed"
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
+      )}
+
     </div>
   );
 }
