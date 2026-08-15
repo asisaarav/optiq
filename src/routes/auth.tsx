@@ -7,7 +7,10 @@ export const Route = createFileRoute("/auth")({
   head: () => ({
     meta: [
       { title: "Sign in — Optiq" },
-      { name: "description", content: "Sign in to Optiq with Google to access the live code optimizer." },
+      {
+        name: "description",
+        content: "Sign in to Optiq with Google to access the live code optimizer.",
+      },
       { name: "robots", content: "noindex" },
     ],
   }),

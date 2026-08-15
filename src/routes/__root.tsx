@@ -73,17 +73,37 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: "Optiq — Optimize SQL, Python & PySpark code instantly" },
-      { name: "description", content: "Paste slow code. Get production-ready optimizations across Postgres, MySQL, Oracle, PL/SQL, Snowflake, BigQuery, Databricks, ClickHouse, Python, and PySpark." },
+      {
+        name: "description",
+        content:
+          "Paste slow code. Get production-ready optimizations across Postgres, MySQL, Oracle, PL/SQL, Snowflake, BigQuery, Databricks, ClickHouse, Python, and PySpark.",
+      },
       { name: "author", content: "Optiq" },
       { property: "og:title", content: "Optiq — Optimize SQL, Python & PySpark code instantly" },
-      { property: "og:description", content: "Paste slow code. Get production-ready optimizations across Postgres, MySQL, Oracle, PL/SQL, Snowflake, BigQuery, Databricks, ClickHouse, Python, and PySpark." },
+      {
+        property: "og:description",
+        content:
+          "Paste slow code. Get production-ready optimizations across Postgres, MySQL, Oracle, PL/SQL, Snowflake, BigQuery, Databricks, ClickHouse, Python, and PySpark.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
       { name: "twitter:site", content: "@Optiq" },
       { name: "twitter:title", content: "Optiq — Optimize SQL, Python & PySpark code instantly" },
-      { name: "twitter:description", content: "Paste slow code. Get production-ready optimizations across Postgres, MySQL, Oracle, PL/SQL, Snowflake, BigQuery, Databricks, ClickHouse, Python, and PySpark." },
-      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/b2d27627-dcc5-47aa-8434-d93d44ca5c66/id-preview-576b383c--e9945844-33eb-477b-b710-2e05a37c5493.lovable.app-1778847551724.png" },
-      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/b2d27627-dcc5-47aa-8434-d93d44ca5c66/id-preview-576b383c--e9945844-33eb-477b-b710-2e05a37c5493.lovable.app-1778847551724.png" },
+      {
+        name: "twitter:description",
+        content:
+          "Paste slow code. Get production-ready optimizations across Postgres, MySQL, Oracle, PL/SQL, Snowflake, BigQuery, Databricks, ClickHouse, Python, and PySpark.",
+      },
+      {
+        property: "og:image",
+        content:
+          "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/b2d27627-dcc5-47aa-8434-d93d44ca5c66/id-preview-576b383c--e9945844-33eb-477b-b710-2e05a37c5493.lovable.app-1778847551724.png",
+      },
+      {
+        name: "twitter:image",
+        content:
+          "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/b2d27627-dcc5-47aa-8434-d93d44ca5c66/id-preview-576b383c--e9945844-33eb-477b-b710-2e05a37c5493.lovable.app-1778847551724.png",
+      },
     ],
     links: [
       { rel: "stylesheet", href: appCss },

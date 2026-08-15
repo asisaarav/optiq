@@ -27,8 +27,6 @@ function Index() {
   // Auth gate is intentionally off until Google OAuth credentials are configured.
   // Re-enable by gating on useAuth() from "@/lib/useAuth".
 
-
-
   return (
     <div className="min-h-screen bg-background text-foreground selection:bg-primary/30">
       <Nav />

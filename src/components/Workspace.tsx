@@ -41,7 +41,6 @@ function LimitNotice({ notice }: { notice: string | null }) {
   );
 }
 
-
 function useAiOptimizer() {
   const fn = useServerFn(aiOptimize);
   const [loading, setLoading] = useState(false);
@@ -1527,7 +1526,6 @@ async function runSqlLocal(
 
 // Python execution runs in a sandboxed Web Worker — see src/lib/pyRunner.ts.
 
-
 // ------------------------- UI components -------------------------
 
 function Toolbar({ left, right }: { left: React.ReactNode; right: React.ReactNode }) {
@@ -1659,7 +1657,6 @@ function CodeOutput({
           dangerouslySetInnerHTML={{ __html: html }}
         />
       )}
-
     </div>
   );
 }
@@ -2086,7 +2083,6 @@ function SqlPanel() {
               value={fixturesText}
               onChange={(e) => setFixturesText(capText(e.target.value, MAX_FIXTURE_CHARS).value)}
               maxLength={MAX_FIXTURE_CHARS}
-
               spellCheck={false}
               placeholder='{"users":[{"id":1,"name":"Ada","status":"active"}],"orders":[...]}'
               className="w-full h-32 bg-secondary/50 border border-border rounded p-2 font-mono text-[11px] outline-none focus:border-primary"
@@ -2118,7 +2114,6 @@ function SqlPanel() {
               value={testsText}
               onChange={(e) => setTestsText(capText(e.target.value, MAX_FIXTURE_CHARS).value)}
               maxLength={MAX_FIXTURE_CHARS}
-
               spellCheck={false}
               className="w-full h-28 bg-secondary/50 border border-border rounded p-2 font-mono text-[11px] outline-none focus:border-primary"
             />
@@ -2180,7 +2175,6 @@ function SqlPanel() {
               aria-label="SQL input editor"
               maxLength={MAX_EDITOR_CHARS}
               onChange={(e) => cap.apply(e.target.value, setInput)}
-
               spellCheck={false}
               className="w-full h-[300px] md:h-[calc(100%-1.75rem)] bg-transparent resize-none outline-none text-zinc-300 font-mono text-sm leading-relaxed"
             />
@@ -2188,7 +2182,6 @@ function SqlPanel() {
           <CodeOutput
             original={input}
             optimized={result.output}
-
             html={html}
             speedup={result.speedup}
             changes={result.changes}
@@ -2256,7 +2249,6 @@ function PythonPanel() {
       append("[done] Script finished with no output — add print() calls to inspect values.");
     setRunning("idle");
   }
-
 
   return (
     <div className="grid lg:grid-cols-[1fr_320px] gap-6">
@@ -2327,7 +2319,6 @@ function PythonPanel() {
               aria-label="Python input editor"
               maxLength={MAX_EDITOR_CHARS}
               onChange={(e) => cap.apply(e.target.value, setInput)}
-
               spellCheck={false}
               className="w-full h-[300px] md:h-[calc(100%-1.75rem)] bg-transparent resize-none outline-none text-zinc-300 font-mono text-sm leading-relaxed"
             />
@@ -2335,7 +2326,6 @@ function PythonPanel() {
           <CodeOutput
             original={input}
             optimized={result.output}
-
             html={html}
             speedup={result.speedup}
             changes={result.changes}
@@ -2486,7 +2476,6 @@ function PySparkPanel() {
               aria-label="PySpark input editor"
               maxLength={MAX_EDITOR_CHARS}
               onChange={(e) => cap.apply(e.target.value, setInput)}
-
               spellCheck={false}
               className="w-full h-[300px] md:h-[calc(100%-1.5rem)] bg-transparent resize-none outline-none text-zinc-300 font-mono text-sm leading-relaxed"
             />
@@ -2498,7 +2487,6 @@ function PySparkPanel() {
             original={input}
             optimized={result.output}
           />
-
         </div>
         {showPlan && (
           <div className="border-t border-border bg-surface-2/30 p-4">
@@ -2760,7 +2748,6 @@ function DataBuilderPanel() {
     const data: Record<string, unknown>[] = [];
     const safeCount = clampRows(count);
     for (let i = 0; i < safeCount; i++) {
-
       const r: Record<string, unknown> = {};
       for (const f of fields) r[f.name || `col_${i}`] = genValue(f);
       data.push(r);
@@ -3062,7 +3049,6 @@ function JsonPanel() {
             spellCheck={false}
             className="w-full h-[260px] md:h-[calc(100%-1.5rem)] bg-transparent resize-none outline-none text-zinc-300 font-mono text-sm leading-relaxed"
           />
-
         </div>
         <div className="p-4 md:p-6 overflow-auto min-h-[300px] md:min-h-0">
           <div className="text-muted-foreground mb-3 text-[10px] uppercase tracking-widest">
@@ -3121,7 +3107,6 @@ export function Workspace() {
         {mode === "DATA" && <DataBuilderPanel />}
         {mode === "JSON" && <JsonPanel />}
       </PanelBoundary>
-
     </div>
   );
 }
