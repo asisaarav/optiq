@@ -6,12 +6,12 @@
   "compatibility_flags": ["nodejs_compat"],
   "assets": {
     "directory": ".open-next/assets",
-    "binding": "ASSETS"
+    "binding": "ASSETS",
   },
   "observability": {
-    "enabled": true
+    "enabled": true,
   },
-  "workers_dev": true
+  "workers_dev": true,
   // Custom domain (code-optimizer.instaluxe.in) is bound separately once the
   // zone is Active on the account - see .github/workflows/deploy.yml. Binding it
   // here would fail the deploy while the domain is still on external nameservers.
