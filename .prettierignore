@@ -1,7 +1,0 @@
-dist
-.output
-.wrangler
-node_modules
-package-lock.json
-src/routeTree.gen.ts
-src/integrations/supabase/types.ts

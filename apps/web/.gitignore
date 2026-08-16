@@ -1,12 +1,11 @@
 node_modules/
 .next/
+.open-next/
 out/
-dist/
-bin/
-coverage.out
-*.log
+coverage/
+*.tsbuildinfo
 .env
 .env.*
 !.env.example
+.wrangler/
 .DS_Store
-*.tsbuildinfo
