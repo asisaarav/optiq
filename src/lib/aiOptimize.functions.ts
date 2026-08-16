@@ -12,7 +12,7 @@ type AiResult = {
 };
 
 export const aiOptimize = createServerFn({ method: "POST" })
-  .inputValidator((d: unknown) => AiInput.parse(d))
+  .validator((d: unknown) => AiInput.parse(d))
   .handler(async ({ data }): Promise<AiResult> => {
     const cfg = resolveAiConfig();
     if (!cfg) {

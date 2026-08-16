@@ -73,5 +73,15 @@ export default defineConfig(async ({ command }): Promise<UserConfig> => {
       ],
     },
     server: { host: "::", port: 8080 },
+    build: {
+      rollupOptions: {
+        onwarn(warning, warn) {
+          // "use client" directives in third-party ESM are meaningless in this
+          // bundle and only add noise; every other warning stays visible.
+          if (warning.code === "MODULE_LEVEL_DIRECTIVE") return;
+          warn(warning);
+        },
+      },
+    },
   };
 });
