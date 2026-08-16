@@ -1,4 +1,0 @@
-User-agent: *
-Allow: /
-
-Sitemap: https://code-optimizer.instaluxe.in/sitemap.xml

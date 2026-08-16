@@ -3,6 +3,7 @@ name: Deploy
 on:
   push:
     branches: [main]
+    paths: ["apps/web/**", ".github/workflows/deploy.yml"]
   workflow_dispatch:
 
 permissions:
@@ -18,9 +19,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: production
-    # Requires repo secrets: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID
-    # and Worker secrets set via `wrangler secret put` (AI_API_KEY, SUPABASE_*).
+    # Guarded: set repo variable DEPLOY_ENABLED=true to allow production deploys.
+    # Requires secrets CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID.
     if: ${{ vars.DEPLOY_ENABLED == 'true' }}
+    defaults:
+      run:
+        working-directory: apps/web
     steps:
       - uses: actions/checkout@v4
         with:
@@ -29,13 +33,12 @@ jobs:
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: apps/web/package-lock.json
       - run: npm ci
-      - run: npm run build
+      - name: Build (OpenNext for Cloudflare)
+        run: npm run cf:build
+      - name: Deploy to Cloudflare Workers
+        run: npx wrangler deploy
         env:
-          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
-      - uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

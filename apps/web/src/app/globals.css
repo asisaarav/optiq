@@ -1,0 +1,50 @@
+@import "tailwindcss";
+
+@theme {
+  --color-background: oklch(0.13 0.008 260);
+  --color-surface-2: oklch(0.155 0.008 260);
+  --color-surface: oklch(0.18 0.008 260);
+  --color-border: oklch(0.27 0.01 260);
+  --color-border-strong: oklch(0.34 0.012 260);
+  --color-foreground: oklch(0.96 0.004 260);
+  --color-muted: oklch(0.68 0.012 260);
+  --color-subtle: oklch(0.55 0.012 260);
+  --color-primary: oklch(0.8 0.19 155);
+  --color-primary-strong: oklch(0.72 0.19 155);
+  --color-warning: oklch(0.8 0.15 80);
+  --color-danger: oklch(0.63 0.2 25);
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-mono-stack), ui-monospace, monospace;
+}
+
+@layer base {
+  html,
+  body {
+    background: var(--color-background);
+    color: var(--color-foreground);
+    -webkit-font-smoothing: antialiased;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex h-8 items-center justify-center gap-1.5 rounded-md border px-3 text-xs font-semibold transition-colors disabled:pointer-events-none disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply border-transparent bg-primary text-background hover:bg-primary-strong;
+  }
+  .btn-secondary {
+    @apply border-border bg-surface text-foreground hover:border-border-strong;
+  }
+  .panel {
+    @apply rounded-xl border border-border bg-surface;
+  }
+  .eyebrow {
+    @apply text-[10px] font-semibold uppercase tracking-[0.14em] text-subtle;
+  }
+}
