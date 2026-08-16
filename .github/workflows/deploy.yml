@@ -42,3 +42,14 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      # Bind the production domain. This only succeeds once instaluxe.in is an
+      # Active zone on the account (nameservers moved to Cloudflare). It is
+      # non-fatal so the workers.dev deploy above always lands; re-running the
+      # workflow after the zone goes Active completes the binding.
+      - name: Attach custom domain (best-effort)
+        continue-on-error: true
+        run: |
+          npx wrangler deploy --routes code-optimizer.instaluxe.in
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
